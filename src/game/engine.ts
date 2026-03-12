@@ -8,11 +8,11 @@ export const COLORS = {
 
 export const GUNS: Record<string, any> = {
   pistol: { speed: 20, cost: 0, spread: 1, cooldown: 15, color: COLORS.gold, name: "BLASTER", dmg: 1 },
-  smg: { speed: 25, cost: 10, spread: 1, cooldown: 5, color: COLORS.neonCyan, name: "PULSE SMG", dmg: 0.8 },
-  shotgun: { speed: 18, cost: 20, spread: 5, cooldown: 30, color: "#ff5500", name: "SCATTER", dmg: 1.5 },
-  rifle: { speed: 45, cost: 35, spread: 1, cooldown: 10, color: COLORS.neonGreen, name: "RAILGUN", dmg: 2.5 },
-  sniper: { speed: 60, cost: 60, spread: 1, cooldown: 40, color: COLORS.neonPink, name: "LANCE", dmg: 8 },
-  minigun: { speed: 30, cost: 150, spread: 2, cooldown: 3, color: "#ffffff", name: "OMEGA", dmg: 1.2 }
+  smg: { speed: 25, cost: 100, spread: 1, cooldown: 5, color: COLORS.neonCyan, name: "PULSE SMG", dmg: 0.8 },
+  shotgun: { speed: 18, cost: 200, spread: 5, cooldown: 30, color: "#ff5500", name: "SCATTER", dmg: 1.5 },
+  rifle: { speed: 45, cost: 350, spread: 1, cooldown: 10, color: COLORS.neonGreen, name: "RAILGUN", dmg: 2.5 },
+  sniper: { speed: 60, cost: 600, spread: 1, cooldown: 40, color: COLORS.neonPink, name: "LANCE", dmg: 8 },
+  minigun: { speed: 30, cost: 1500, spread: 2, cooldown: 3, color: "#ffffff", name: "OMEGA", dmg: 1.2 }
 };
 
 export class GameEngine {
@@ -20,12 +20,12 @@ export class GameEngine {
   ctx: CanvasRenderingContext2D;
   
   // React callbacks
-  onStateChange: (state: 'TITLE' | 'PLAYING' | 'GAMEOVER') => void;
+  onStateChange: (state: 'TITLE' | 'PLAYING' | 'GAMEOVER' | 'LEVEL_COMPLETE' | 'BOSS_TRANSITION') => void;
   onStatsChange: (stats: any) => void;
   onDamage: () => void;
 
   // Game State
-  mode: 'TITLE' | 'PLAYING' | 'GAMEOVER' = 'TITLE';
+  mode: 'TITLE' | 'PLAYING' | 'GAMEOVER' | 'LEVEL_COMPLETE' | 'BOSS_TRANSITION' = 'TITLE';
   gameMode: 'FREE' | 'LEVELS' = 'FREE';
   currentLevel = 1;
   levelGoal = 1000; // Distance to reach in level mode
@@ -38,6 +38,19 @@ export class GameEngine {
   currentZoom = 1; targetZoom = 1; inBossFight = false;
   currentGun = 'pistol';
   shopOpen = false;
+  prngSeed = 1;
+  levelCompleteTimer = 0;
+
+  bossDefeated = false;
+  bossTransitionTimer = 0;
+
+  random() {
+    if (this.gameMode === 'LEVELS') {
+      this.prngSeed = (this.prngSeed * 9301 + 49297) % 233280;
+      return this.prngSeed / 233280;
+    }
+    return Math.random();
+  }
   
   platforms: any[] = [];
   bullets: any[] = [];
@@ -151,8 +164,12 @@ export class GameEngine {
           this.coins.push({x: e.x, y: e.y - 20, vx: (Math.random() - 0.5) * 8, vy: -8, value: e.creditValue});
           this.score++; this.enemies.splice(ei, 1); this.screenShake = 6;
           
-          if (e.isBoss && this.gameMode === 'LEVELS') {
-            this.completeLevel();
+          if (e.isBoss) {
+            if (this.gameMode === 'LEVELS') {
+              this.completeLevel();
+            } else {
+              this.currentLevel++;
+            }
           }
           this.notifyStats();
         }
@@ -191,9 +208,9 @@ export class GameEngine {
   }
 
   buyHeal() {
-    if (this.money >= 15 && this.health < this.maxHealth) {
-      this.health++;
-      this.money -= 15;
+    if (this.money >= 500 && this.health < this.maxHealth) {
+      this.health = Math.min(this.maxHealth, this.health + 5);
+      this.money -= 500;
       this.spawnParticles(this.px, this.py, COLORS.neonGreen, 30, 5);
       audio.playSfx('buy');
       this.notifyStats();
@@ -206,6 +223,7 @@ export class GameEngine {
     this.mode = 'PLAYING';
     this.gameMode = gameMode;
     this.currentLevel = level;
+    this.prngSeed = level * 12345;
     this.levelGoal = 1000 + (level - 1) * 500;
     this.onStateChange('PLAYING');
     
@@ -218,6 +236,9 @@ export class GameEngine {
     this.currentZoom = 1; this.targetZoom = 1; this.inBossFight = false;
     this.lastEnemyX = 0;
     this.currentGun = "pistol"; this.shopOpen = false;
+    this.levelCompleteTimer = 0;
+    this.bossDefeated = false;
+    this.bossTransitionTimer = 0;
     this.platforms = [{ x: -200, y: this.h - 100, w: 1400, id: 0 }];
     
     this.notifyStats();
@@ -250,41 +271,70 @@ export class GameEngine {
     }
   }
 
-  spawnText(x: number, y: number, text: string, color = "#fff") {
-    this.floatingTexts.push({ x, y, text, color, life: 1.0 });
+  spawnText(x: number, y: number, text: string, color = "#fff", size = 16, decay = 0.02) {
+    this.floatingTexts.push({ x, y, text, color, life: 1.0, size, decay });
   }
 
   completeLevel() {
     audio.playSfx('buy');
-    
-    if (this.currentLevel >= 20) {
-        this.onStateChange('GAMEOVER');
-        return;
-    }
-    
+    this.mode = 'LEVEL_COMPLETE';
+    this.onStateChange('LEVEL_COMPLETE');
+    this.notifyStats();
+  }
+
+  nextLevel() {
+    this.mode = 'PLAYING';
     this.currentLevel++;
+    this.prngSeed = this.currentLevel * 12345;
+    this.health = this.maxHealth; // Heal on next level
     
-    // Reset position and platforms
     this.px = 100; this.py = this.h / 2 - 100;
     this.vx = 0; this.vy = 0;
-    this.camX = 0;
+    this.bullets = []; this.enemyBullets = []; this.enemies = [];
+    this.coins = []; this.particles = []; this.trails = []; this.floatingTexts = [];
+    this.camX = 0; this.lastLandedPlat = -1; this.invulnTime = 0; this.abilityCooldown = 0;
+    this.currentZoom = 1; this.targetZoom = 1; this.inBossFight = false;
+    this.lastEnemyX = 0;
+    this.shopOpen = false;
+    this.levelCompleteTimer = 0;
+    this.bossDefeated = false;
+    this.bossTransitionTimer = 0;
     this.platforms = [{ x: -200, y: this.h - 100, w: 1400, id: 0 }];
-    this.enemies = [];
-    this.bullets = [];
-    this.enemyBullets = [];
-    this.coins = [];
-    this.lastLandedPlat = -1;
     
-    this.spawnText(this.px, this.py - 50, "LEVEL COMPLETE!", COLORS.neonGreen);
+    this.onStateChange('PLAYING');
     this.notifyStats();
   }
 
   update() {
     if (this.mode !== 'PLAYING') return;
     
+    if (this.bossTransitionTimer > 0) {
+        this.bossTransitionTimer--;
+        this.vx *= 0.9;
+        this.keys = {}; // Clear inputs
+        this.camX += (this.px - this.camX - this.w / 3) * 0.1;
+        
+        if (this.bossTransitionTimer <= 0) {
+            this.onStateChange('PLAYING');
+        }
+    }
+    
+    if (this.bossDefeated) {
+        this.levelCompleteTimer++;
+        if (this.levelCompleteTimer > 120) { // Wait 2 seconds before completing
+            this.bossDefeated = false;
+            this.levelCompleteTimer = 0;
+            if (this.gameMode === 'LEVELS') {
+                this.completeLevel();
+            } else {
+                this.currentLevel++;
+            }
+        }
+    }
+    
     let statsChanged = false;
 
-    if (!this.shopOpen) {
+    if (!this.shopOpen && this.bossTransitionTimer <= 0) {
       if (this.invulnTime > 0) this.invulnTime--;
 
       if (this.keys['ArrowLeft'] || this.keys['KeyA']) { this.vx -= 1.2; this.lastDir = -1; }
@@ -302,28 +352,44 @@ export class GameEngine {
       }
 
       // Boss Fight State Management
-      let bossActive = this.enemies.some(e => e.isBoss && e.state !== 'spawning');
+      let bossActive = this.enemies.some(e => e.isBoss && e.state !== 'spawning' && e.state !== 'waiting') || this.bossDefeated;
       if (bossActive && !this.inBossFight) {
           this.inBossFight = true;
-          this.maxHealth += 10;
-          this.health += 10;
           this.targetZoom = 0.6; // Zoom out
           this.notifyStats();
       } else if (!bossActive && this.inBossFight) {
           this.inBossFight = false;
-          this.maxHealth -= 10;
-          if (this.health > this.maxHealth) this.health = this.maxHealth;
           this.targetZoom = 1;
           this.notifyStats();
       }
       this.currentZoom += (this.targetZoom - this.currentZoom) * 0.05;
+
+      if (this.inBossFight) {
+          let bossPlats = this.platforms.filter(p => p.w === 4000);
+          let bossPlat = bossPlats[bossPlats.length - 1];
+          if (bossPlat) {
+              if (this.px > bossPlat.x + bossPlat.w - 100) {
+                  this.px = bossPlat.x + bossPlat.w - 100;
+                  if (this.vx > 0) this.vx = 0;
+              }
+              if (this.px < bossPlat.x + 100) {
+                  this.px = bossPlat.x + 100;
+                  if (this.vx < 0) this.vx = 0;
+              }
+          }
+      }
 
       this.camX += (this.px - this.camX - this.w / 3) * 0.1;
       if (this.px < this.camX + 20) { this.px = this.camX + 20; if (this.vx < 0) this.vx = 0; }
       
       if (this.shootCooldown > 0) this.shootCooldown--;
       if (this.dashCooldown > 0) this.dashCooldown--;
-      if (this.abilityCooldown > 0) this.abilityCooldown--;
+      if (this.abilityCooldown > 0) {
+          this.abilityCooldown--;
+          if (this.abilityCooldown % 5 === 0 || this.abilityCooldown === 0) {
+              this.notifyStats();
+          }
+      }
 
       if ((this.keys['KeyZ'] || this.keys['Mouse0']) && this.shootCooldown <= 0) {
           const g = GUNS[this.currentGun];
@@ -357,10 +423,22 @@ export class GameEngine {
       if (lastPlat.x < this.camX + this.w) {
           if (this.gameMode === 'FREE' || lastPlat.id < 15) {
               let nextId = Math.floor(lastPlat.id) + 1;
+              
+              let gapBase = 120; let gapRand = 250;
+              let wBase = 250; let wRand = 400;
+              
+              if (this.gameMode === 'LEVELS') {
+                  let diff = Math.min(this.currentLevel, 20) / 20; // 0 to 1
+                  gapBase = 120 + diff * 80;
+                  gapRand = 250 + diff * 100;
+                  wBase = 250 - diff * 100;
+                  wRand = 400 - diff * 200;
+              }
+
               const plat = {
-                  x: lastPlat.x + lastPlat.w + 120 + Math.random() * 250,
-                  y: this.h - 180 - Math.random() * 120 + 40,
-                  w: 250 + Math.random() * 400,
+                  x: lastPlat.x + lastPlat.w + gapBase + this.random() * gapRand,
+                  y: this.h - 180 - this.random() * 120 + 40,
+                  w: wBase + this.random() * wRand,
                   id: nextId
               };
               
@@ -381,21 +459,53 @@ export class GameEngine {
 
           if (spawnEnemy) {
               let type = 'boss';
-              let hp = 30; // Decreased health to 30
-              let creditValue = 50;
-              let size = 4; // Huge boss
+              
+              const BOSS_TYPES = [
+                  { name: "JUGGERNAUT", color: "#ff0000", size: 4, attackType: "spread" },
+                  { name: "SERAPHIM", color: "#00f3ff", size: 3, attackType: "laser" },
+                  { name: "BEHEMOTH", color: "#39ff14", size: 5, attackType: "heavy" },
+                  { name: "VALKYRIE", color: "#ff00ea", size: 3.5, attackType: "burst" },
+                  { name: "OMEGA", color: "#ffd700", size: 6, attackType: "hell" },
+                  { name: "TITAN", color: "#ff5500", size: 5.5, attackType: "spread" },
+                  { name: "ECLIPSE", color: "#9900ff", size: 4.5, attackType: "laser" },
+                  { name: "LEVIATHAN", color: "#00ffaa", size: 7, attackType: "heavy" },
+                  { name: "NEMESIS", color: "#ff0055", size: 4, attackType: "burst" },
+                  { name: "APOLLYON", color: "#ffffff", size: 6.5, attackType: "hell" }
+              ];
+              
+              let bossIndex = (this.currentLevel - 1) % BOSS_TYPES.length;
+              let cycle = Math.floor((this.currentLevel - 1) / BOSS_TYPES.length);
+              let bossDef = BOSS_TYPES[bossIndex];
+              
+              // Standardized boss health progression: 3, 6, 9, 10, 15, 18, 21, 24, 25, 30, 33, 36, 39, 40, 45...
+              // Pattern: level * 3, but level * 3 - 2 every 5th level (starting at 4)
+              let hp = (this.currentLevel % 5 === 4) ? (this.currentLevel * 3 - 2) : (this.currentLevel * 3);
+              
+              let creditValue = Math.floor(50 * Math.pow(1.07, this.currentLevel - 1));
+              let size = bossDef.size;
               let startY = plat.y - 1000; // Drop from sky
               let state = 'spawning';
-              let targetY = plat.y - 80; // Adjust for larger size
+              let targetY = plat.y - (12.5 * size); // Adjust for larger size
+              
+              // Generate a unique name if we loop past the defined names
+              let finalBossName = bossDef.name;
+              if (cycle > 0) {
+                  const prefixes = ["DARK", "VOID", "NEO", "CYBER", "DOOM", "NULL", "ABYSS", "MECHA", "GHOST", "BLOOD"];
+                  let prefix = prefixes[(cycle - 1) % prefixes.length];
+                  finalBossName = `${prefix} ${bossDef.name}`;
+              }
 
               this.enemies.push({
-                  x: plat.x + plat.w / 2, y: startY, targetY: targetY,
+                  x: 0, y: 0, targetY: targetY,
                   cooldown: 300, dir: -1, // 5 seconds initial cooldown
                   plat: plat, 
                   maxHp: hp, 
                   hp: hp,
                   type, creditValue, size,
-                  isBoss, state
+                  isBoss, state: 'waiting',
+                  bossName: finalBossName,
+                  bossColor: bossDef.color,
+                  attackType: bossDef.attackType
               });
           }
         }
@@ -408,13 +518,19 @@ export class GameEngine {
         const dx = Math.abs(this.px - e.x);
         const dy = Math.abs(this.py - e.y);
         
-        if (dx < 30 * size && dy < 30 * size) {
+        const hitX = e.isBoss ? 80 : 30 * size;
+        const hitY = e.isBoss ? 60 : 30 * size;
+
+        if (dx < hitX && dy < hitY) {
           if (this.invulnTime <= 0) {
             // Take damage on collision
-            this.health--;
-            this.screenShake = 20;
+            let dmg = e.isBoss ? 4 : 1;
+            this.health -= dmg;
+            this.screenShake = e.isBoss ? 20 : 10;
             this.invulnTime = 60;
             audio.playSfx('hit');
+            this.vx = (this.px < e.x ? -1 : 1) * 15;
+            this.vy = -10;
             this.onDamage();
             this.spawnParticles(this.px, this.py, COLORS.enemyGlow, 30);
             statsChanged = true;
@@ -434,6 +550,31 @@ export class GameEngine {
             }
         }
       });
+
+      // Boss Transition Trigger
+      let waitingBoss = this.enemies.find(e => e.isBoss && e.state === 'waiting');
+      if (waitingBoss && this.px > waitingBoss.plat.x - 800) {
+          this.bossTransitionTimer = 120;
+          this.onStateChange('BOSS_TRANSITION');
+          
+          // Teleport player
+          this.px = waitingBoss.plat.x + 200;
+          this.py = waitingBoss.plat.y - 50;
+          this.vx = 0;
+          this.vy = 0;
+          this.camX = this.px - this.w / 3;
+          
+          // Set boss position
+          waitingBoss.x = this.px + 600;
+          waitingBoss.targetY = waitingBoss.plat.y - (12.5 * (waitingBoss.size || 4));
+          waitingBoss.y = waitingBoss.targetY - 1000;
+          waitingBoss.state = 'spawning';
+          
+          // Clear other enemies and bullets
+          this.enemies = this.enemies.filter(e => e.isBoss);
+          this.bullets = [];
+          this.enemyBullets = [];
+      }
 
       // Update particles
       for(let i = this.particles.length - 1; i >= 0; i--) {
@@ -466,17 +607,23 @@ export class GameEngine {
                   e.hp -= b.dmg; hit = true;
                   this.spawnParticles(b.x, b.y, b.color, 10);
                   this.spawnText(e.x + (Math.random()-0.5)*20, e.y - 30, "-" + b.dmg, b.color);
-                  if (e.hp <= 0) {
-                      this.spawnParticles(e.x, e.y, "#ff5500", 40); audio.playSfx('explosion');
-                      this.coins.push({x: e.x, y: e.y - 20, vx: (Math.random() - 0.5) * 8, vy: -8, value: e.creditValue});
-                      this.score++; this.enemies.splice(ei, 1); this.screenShake = 6;
-                      
-                      if (e.isBoss && this.gameMode === 'LEVELS') {
-                          this.completeLevel();
+                      if (e.hp <= 0) {
+                          this.spawnParticles(e.x, e.y, "#ff5500", 40); audio.playSfx('explosion');
+                          this.score++; this.enemies.splice(ei, 1); this.screenShake = 6;
+                          
+                          if (e.isBoss) {
+                              this.bossDefeated = true;
+                              this.money += e.creditValue;
+                              this.spawnText(e.x, e.y - 80, `+${e.creditValue} CR`, COLORS.gold, 48, 0.01);
+                              this.spawnParticles(e.x, e.y, COLORS.gold, 100, 15);
+                              this.spawnParticles(e.x, e.y, "#ff5500", 100, 20);
+                              audio.playSfx('buy');
+                          } else {
+                              this.coins.push({x: e.x, y: e.y - 20, vx: (Math.random() - 0.5) * 8, vy: -8, value: e.creditValue});
+                          }
+                          
+                          statsChanged = true;
                       }
-                      
-                      statsChanged = true;
-                  }
                   break;
               }
           }
@@ -497,25 +644,72 @@ export class GameEngine {
               return; // Don't move or shoot while spawning
           }
 
-          const speed = e.type === 'fast' ? 4 : (e.type === 'heavy' ? 1 : (e.type === 'boss' ? 3 : 2));
-          e.x += e.dir * speed;
-          if (e.x < e.plat.x + 30 || e.x > e.plat.x + e.plat.w - 30) e.dir *= -1;
-          
-          e.cooldown--;
-          if (e.cooldown <= 0 && Math.abs(e.x - this.px) < this.w) {
-              let dx = this.px - e.x, dy = this.py - e.y;
-              let dist = Math.hypot(dx, dy);
+          if (e.isBoss) {
+              // Boss AI
+              const speed = e.attackType === 'laser' ? 5 : (e.attackType === 'heavy' ? 2 : 3);
+              e.x += e.dir * speed;
+              if (e.x < e.plat.x + 100 || e.x > e.plat.x + e.plat.w - 100) e.dir *= -1;
               
-              if (e.isBoss) {
-                  let spread = 6 + this.currentLevel;
-                  for(let i = -spread; i <= spread; i+=2) {
-                      this.enemyBullets.push({ x: e.x, y: e.y, vx: (dx/dist)*8 + (Math.random()-0.5)*3, vy: (dy/dist)*8 + i });
+              e.cooldown--;
+              if (e.cooldown <= 0 && Math.abs(e.x - this.px) < this.w) {
+                  let dx = this.px - e.x, dy = this.py - e.y;
+                  let dist = Math.hypot(dx, dy);
+                  
+                  if (e.attackType === 'spread') {
+                      let spread = 6 + this.currentLevel;
+                      for(let i = -spread; i <= spread; i+=3) {
+                          this.enemyBullets.push({ x: e.x, y: e.y, vx: (dx/dist)*8 + (Math.random()-0.5)*3, vy: (dy/dist)*8 + i });
+                      }
+                      e.cooldown = 45;
+                  } else if (e.attackType === 'laser') {
+                      for(let i = 0; i < 3; i++) {
+                          this.enemyBullets.push({ x: e.x, y: e.y, vx: (dx/dist)*15 + (Math.random()-0.5)*2, vy: (dy/dist)*15 + (Math.random()-0.5)*2 });
+                      }
+                      e.cooldown = 20;
+                  } else if (e.attackType === 'heavy') {
+                      for(let i = -2; i <= 2; i++) {
+                          this.enemyBullets.push({ x: e.x, y: e.y, vx: (dx/dist)*5 + i*2, vy: (dy/dist)*5, size: 3 }); // Larger bullets
+                      }
+                      e.cooldown = 60;
+                  } else if (e.attackType === 'burst') {
+                      for(let i = 0; i < 8; i++) {
+                          let angle = (Math.PI * 2 / 8) * i + (this.frameCount * 0.1);
+                          this.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(angle)*6, vy: Math.sin(angle)*6 });
+                      }
+                      e.cooldown = 30;
+                  } else if (e.attackType === 'hell') {
+                      let spread = 10 + this.currentLevel;
+                      for(let i = -spread; i <= spread; i+=2) {
+                          this.enemyBullets.push({ x: e.x, y: e.y, vx: (dx/dist)*6 + (Math.random()-0.5)*5, vy: (dy/dist)*6 + i });
+                      }
+                      for(let i = 0; i < 5; i++) {
+                          let angle = Math.random() * Math.PI * 2;
+                          this.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(angle)*8, vy: Math.sin(angle)*8 });
+                      }
+                      e.cooldown = 40;
+                  } else {
+                      let spread = 6 + this.currentLevel;
+                      for(let i = -spread; i <= spread; i+=2) {
+                          this.enemyBullets.push({ x: e.x, y: e.y, vx: (dx/dist)*8 + (Math.random()-0.5)*3, vy: (dy/dist)*8 + i });
+                      }
+                      e.cooldown = 45;
                   }
-                  e.cooldown = 45; // Shoots faster
+                  
                   this.screenShake = 8; audio.playSfx('shoot');
-              } else {
+              }
+          } else {
+              const speed = e.type === 'fast' ? 4 : (e.type === 'heavy' ? 1 : 2);
+              e.x += e.dir * speed;
+              if (e.x < e.plat.x + 30 || e.x > e.plat.x + e.plat.w - 30) e.dir *= -1;
+              
+              e.cooldown--;
+              if (e.cooldown <= 0 && Math.abs(e.x - this.px) < this.w) {
+                  let dx = this.px - e.x, dy = this.py - e.y;
+                  let dist = Math.hypot(dx, dy);
+                  
                   this.enemyBullets.push({x: e.x, y: e.y, vx: (dx/dist)*6, vy: (dy/dist)*6});
                   e.cooldown = 90; 
+                  audio.playSfx('shoot');
               }
           }
       });
@@ -525,7 +719,9 @@ export class GameEngine {
           let b = this.enemyBullets[i];
           b.x += b.vx; b.y += b.vy;
           
-          if (this.invulnTime <= 0 && Math.abs(b.x - this.px) < 20 && Math.abs(b.y - this.py) < 25) {
+          let hitSize = b.size ? b.size * 6 : 6;
+          
+          if (this.invulnTime <= 0 && Math.abs(b.x - this.px) < 15 + hitSize && Math.abs(b.y - this.py) < 20 + hitSize) {
               this.health--; this.screenShake = 20; this.invulnTime = 60; audio.playSfx('hit');
               this.onDamage();
               this.spawnParticles(this.px, this.py, COLORS.enemyGlow, 30);
@@ -556,13 +752,16 @@ export class GameEngine {
               this.spawnText(c.x, c.y - 20, `+${val} CR`, COLORS.gold);
               audio.playSfx('coin'); this.coins.splice(i, 1);
               statsChanged = true;
+          } else if (c.y > this.h + 200) {
+              // Remove coins that fall off the screen so they don't block level completion
+              this.coins.splice(i, 1);
           }
       }
       
       // Update floating texts
       for(let i = this.floatingTexts.length - 1; i >= 0; i--) {
           let ft = this.floatingTexts[i];
-          ft.y -= 1; ft.life -= 0.02;
+          ft.y -= 1; ft.life -= ft.decay || 0.02;
           if (ft.life <= 0) this.floatingTexts.splice(i, 1);
       }
 
@@ -816,7 +1015,7 @@ export class GameEngine {
       for(let b of this.enemyBullets) {
           ctx.shadowColor = COLORS.enemyGlow; ctx.shadowBlur = 15;
           ctx.fillStyle = "#fff";
-          ctx.beginPath(); ctx.arc(b.x, b.y, 6, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(b.x, b.y, b.size ? b.size * 3 : 6, 0, Math.PI * 2); ctx.fill();
           ctx.shadowBlur = 0;
       }
 
@@ -832,7 +1031,7 @@ export class GameEngine {
       // Draw floating texts
       for(let ft of this.floatingTexts) {
           ctx.globalAlpha = ft.life; ctx.fillStyle = ft.color;
-          ctx.font = "bold 16px Orbitron"; ctx.fillText(ft.text, ft.x, ft.y);
+          ctx.font = `bold ${ft.size || 16}px Orbitron`; ctx.fillText(ft.text, ft.x, ft.y);
           ctx.globalAlpha = 1.0;
       }
 
@@ -845,6 +1044,11 @@ export class GameEngine {
               ctx.save();
               ctx.translate(e.x, e.y);
               ctx.scale(e.dir, 1);
+              
+              let bossColor = e.bossColor || COLORS.neonPink;
+              let s = (e.size || 4) / 4; // Normalize scale relative to original size 4
+              
+              ctx.scale(s, s);
               
               // Boss Body (Large Mechanical Beast)
               ctx.fillStyle = e.state === 'telegraph' ? '#ff0000' : '#1a1a1a';
@@ -859,8 +1063,9 @@ export class GameEngine {
               ctx.fillRect(-90, 20, 180, 30);
               
               // Glowing Core / Eye
-              ctx.fillStyle = e.state === 'charging' ? '#ffffff' : COLORS.neonPink;
-              ctx.shadowColor = ctx.fillStyle;
+              const coreColor = e.state === 'charging' ? '#ffffff' : bossColor;
+              ctx.fillStyle = coreColor;
+              ctx.shadowColor = coreColor;
               ctx.shadowBlur = 30;
               ctx.beginPath();
               ctx.arc(40, -20, 20, 0, Math.PI * 2);
@@ -868,12 +1073,21 @@ export class GameEngine {
               
               ctx.restore();
               
-              // Boss Health Bar
+              // Boss Health Bar and Name
               if (e.hp > 0 && e.maxHp > 0) {
+                  let barWidth = 160 * s;
+                  let barY = e.y - (100 * s);
+                  
                   ctx.fillStyle = "#333";
-                  ctx.fillRect(e.x - 80, e.y - 100, 160, 8);
-                  ctx.fillStyle = COLORS.neonPink;
-                  ctx.fillRect(e.x - 80, e.y - 100, 160 * (e.hp / e.maxHp), 8);
+                  ctx.fillRect(e.x - barWidth/2, barY, barWidth, 8);
+                  ctx.fillStyle = bossColor;
+                  ctx.fillRect(e.x - barWidth/2, barY, barWidth * (e.hp / e.maxHp), 8);
+                  
+                  ctx.fillStyle = bossColor;
+                  ctx.font = "bold 14px Orbitron";
+                  ctx.textAlign = "center";
+                  ctx.fillText(e.bossName || "BOSS", e.x, barY - 10);
+                  ctx.textAlign = "left";
               }
           } else {
               this.drawDrone(e.x, e.y, e.size || 1, e.hp, e.maxHp);

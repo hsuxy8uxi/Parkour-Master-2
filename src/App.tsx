@@ -7,11 +7,22 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
   
-  const [gameState, setGameState] = useState<'TITLE' | 'PLAYING' | 'GAMEOVER'>('TITLE');
+  const [gameState, setGameState] = useState<'TITLE' | 'PLAYING' | 'GAMEOVER' | 'LEVEL_COMPLETE' | 'BOSS_TRANSITION'>('TITLE');
   const [stats, setStats] = useState({ score: 0, money: 0, health: 10, maxHealth: 10, weapon: 'pistol', boss: null as any, gameMode: 'FREE' as 'FREE' | 'LEVELS', currentLevel: 1, levelGoal: 1000, distance: 0, abilityCooldown: 0 });
   const [shopOpen, setShopOpen] = useState(false);
   const [damageFlash, setDamageFlash] = useState(false);
   const [bestScore, setBestScore] = useState(parseInt(localStorage.getItem('pm_best') || '0'));
+  const [showLevelSelect, setShowLevelSelect] = useState(false);
+  const [unlockedLevel, setUnlockedLevel] = useState(parseInt(localStorage.getItem('pm_unlocked') || '1'));
+
+  useEffect(() => {
+    if (gameState === 'LEVEL_COMPLETE') {
+      if (stats.currentLevel + 1 > unlockedLevel) {
+        setUnlockedLevel(stats.currentLevel + 1);
+        localStorage.setItem('pm_unlocked', (stats.currentLevel + 1).toString());
+      }
+    }
+  }, [gameState, stats.currentLevel, unlockedLevel]);
 
   useEffect(() => {
     if (canvasRef.current && !engineRef.current) {
@@ -80,9 +91,10 @@ export default function App() {
       {/* UI Layer */}
       <div className="absolute inset-0 z-50 pointer-events-none flex flex-col">
         
-        <AnimatePresence>
+        <AnimatePresence mode="wait">
           {gameState === 'TITLE' && (
             <motion.div 
+              key="title"
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="absolute inset-0 flex flex-col items-center justify-center pointer-events-auto"
             >
@@ -91,23 +103,56 @@ export default function App() {
               </h1>
               
               <div className="flex flex-col md:flex-row gap-4 mt-8">
-                <motion.button 
-                  whileHover={{ scale: 1.05, boxShadow: "0 0 20px #ff00ea" }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => engineRef.current?.start('FREE')}
-                  className="px-8 py-4 bg-black/50 border-2 border-[#ff00ea] text-[#ff00ea] text-xl font-bold rounded-xl flex items-center gap-3 backdrop-blur-sm cursor-pointer"
-                >
-                  <Play size={24} /> FREE PLAY
-                </motion.button>
+                {showLevelSelect ? (
+                  <div className="flex flex-col items-center gap-4 w-full max-w-2xl bg-black/80 p-8 rounded-2xl border border-gray-800 backdrop-blur-md">
+                    <h2 className="text-3xl font-bold text-white mb-4">SELECT LEVEL</h2>
+                    <div className="grid grid-cols-5 gap-4 w-full">
+                      {Array.from({ length: Math.max(20, Math.ceil(unlockedLevel / 10) * 10) }).map((_, i) => {
+                        const level = i + 1;
+                        const isUnlocked = level <= unlockedLevel;
+                        return (
+                          <button
+                            key={level}
+                            disabled={!isUnlocked}
+                            onClick={() => {
+                              setShowLevelSelect(false);
+                              engineRef.current?.start('LEVELS', level);
+                            }}
+                            className={`p-4 rounded font-bold text-xl transition-all ${isUnlocked ? 'bg-[#ff00ea] text-white hover:bg-[#cc00bb] hover:scale-105 shadow-[0_0_15px_rgba(255,0,234,0.5)]' : 'bg-gray-800 text-gray-600 cursor-not-allowed'}`}
+                          >
+                            {level}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button 
+                      className="mt-8 px-6 py-2 border border-gray-500 text-gray-400 hover:text-white hover:border-white rounded transition-colors"
+                      onClick={() => setShowLevelSelect(false)}
+                    >
+                      BACK
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <motion.button 
+                      whileHover={{ scale: 1.05, boxShadow: "0 0 20px #ff00ea" }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => engineRef.current?.start('FREE')}
+                      className="px-8 py-4 bg-black/50 border-2 border-[#ff00ea] text-[#ff00ea] text-xl font-bold rounded-xl flex items-center gap-3 backdrop-blur-sm cursor-pointer"
+                    >
+                      <Play size={24} /> FREE PLAY
+                    </motion.button>
 
-                <motion.button 
-                  whileHover={{ scale: 1.05, boxShadow: "0 0 20px #39ff14" }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => engineRef.current?.start('LEVELS')}
-                  className="px-8 py-4 bg-black/50 border-2 border-[#39ff14] text-[#39ff14] text-xl font-bold rounded-xl flex items-center gap-3 backdrop-blur-sm cursor-pointer"
-                >
-                  <Trophy size={24} /> LEVELS MODE
-                </motion.button>
+                    <motion.button 
+                      whileHover={{ scale: 1.05, boxShadow: "0 0 20px #39ff14" }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => setShowLevelSelect(true)}
+                      className="px-8 py-4 bg-black/50 border-2 border-[#39ff14] text-[#39ff14] text-xl font-bold rounded-xl flex items-center gap-3 backdrop-blur-sm cursor-pointer"
+                    >
+                      <Trophy size={24} /> LEVELS MODE
+                    </motion.button>
+                  </>
+                )}
               </div>
               
               <div className="mt-12 p-6 bg-black/60 border border-[#00f3ff]/30 rounded-2xl backdrop-blur-md max-w-md w-full text-center">
@@ -122,8 +167,9 @@ export default function App() {
             </motion.div>
           )}
 
-          {gameState === 'PLAYING' && (
+          {(gameState === 'PLAYING' || gameState === 'BOSS_TRANSITION') && (
             <motion.div 
+              key="hud"
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="absolute inset-0 p-4 md:p-8 flex flex-col justify-between"
             >
@@ -218,8 +264,66 @@ export default function App() {
             </motion.div>
           )}
 
+          {gameState === 'BOSS_TRANSITION' && (
+            <motion.div 
+              key="boss-transition"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-50 bg-black overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjMDAwIiAvPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSIxIiBmaWxsPSIjMTExIiAvPgo8L3N2Zz4=')] opacity-50 mix-blend-screen pointer-events-none"></div>
+              
+              <motion.div 
+                initial={{ scale: 1.5, opacity: 0, y: -50 }} 
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                transition={{ type: "spring", damping: 12, stiffness: 100 }}
+                className="w-full py-16 border-y-8 border-red-600 flex flex-col items-center justify-center bg-red-900/20 backdrop-blur-sm relative"
+              >
+                <div className="absolute inset-0 bg-red-600/10 animate-pulse"></div>
+                
+                <h2 className="text-6xl md:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-b from-red-400 to-red-700 tracking-[0.2em] drop-shadow-[0_0_40px_#ff0000] text-center relative z-10" style={{ WebkitTextStroke: '2px #ff0000' }}>
+                  WARNING
+                </h2>
+                <h3 className="text-2xl md:text-4xl font-bold text-white tracking-[0.5em] mt-4 drop-shadow-[0_0_10px_#ffffff] relative z-10">
+                  HOSTILE ENTITY DETECTED
+                </h3>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {gameState === 'LEVEL_COMPLETE' && (
+            <motion.div 
+              key="level-complete"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 flex flex-col items-center justify-center pointer-events-auto bg-black/80 backdrop-blur-sm z-50"
+            >
+              <h2 className="text-6xl font-black text-[#39ff14] mb-2 drop-shadow-[0_0_20px_#39ff14]">LEVEL COMPLETE</h2>
+              <p className="text-xl text-white mb-8">Boss Defeated!</p>
+              
+              <div className="flex gap-4">
+                  <button 
+                    className="px-8 py-4 bg-[#ff00ea] text-white font-black text-xl rounded hover:bg-white hover:text-black transition-colors shadow-[0_0_20px_rgba(255,0,234,0.5)] cursor-pointer"
+                    onClick={() => engineRef.current?.nextLevel()}
+                  >
+                    NEXT LEVEL
+                  </button>
+                  <button 
+                    className="px-8 py-4 border-2 border-white text-white font-black text-xl rounded hover:bg-white hover:text-black transition-colors cursor-pointer"
+                    onClick={() => {
+                      if (engineRef.current) {
+                        engineRef.current.mode = 'TITLE';
+                        engineRef.current.onStateChange('TITLE');
+                      }
+                    }}
+                  >
+                    MENU
+                  </button>
+              </div>
+            </motion.div>
+          )}
+
           {gameState === 'GAMEOVER' && (
             <motion.div 
+              key="gameover"
               initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
               className="absolute inset-0 flex flex-col items-center justify-center pointer-events-auto bg-black/80 backdrop-blur-sm"
             >
@@ -236,7 +340,7 @@ export default function App() {
               <motion.button 
                 whileHover={{ scale: 1.05, boxShadow: "0 0 20px #00f3ff" }}
                 whileTap={{ scale: 0.95 }}
-                onClick={() => engineRef.current?.start(stats.gameMode)}
+                onClick={() => engineRef.current?.start(stats.gameMode, stats.currentLevel)}
                 className="px-8 py-4 bg-black/50 border-2 border-[#00f3ff] text-[#00f3ff] text-xl font-bold rounded-xl flex items-center gap-3 backdrop-blur-sm cursor-pointer"
               >
                 <Play size={24} /> REBOOT SYSTEM
@@ -249,6 +353,7 @@ export default function App() {
         <AnimatePresence>
           {shopOpen && gameState === 'PLAYING' && (
             <motion.div 
+              key="shop"
               initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 50 }}
               className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black/40 backdrop-blur-sm p-4"
               onClick={() => setShopOpen(false)}
@@ -289,14 +394,14 @@ export default function App() {
                   <div 
                     onClick={() => engineRef.current?.buyHeal()}
                     className={`flex justify-between items-center p-4 rounded-xl border mt-8 transition-all cursor-pointer ${
-                      stats.money >= 15 && stats.health < stats.maxHealth ? 'border-[#ff00ea] hover:bg-[#ff00ea]/10' : 'border-white/5 opacity-50 cursor-not-allowed'
+                      stats.money >= 500 && stats.health < stats.maxHealth ? 'border-[#ff00ea] hover:bg-[#ff00ea]/10' : 'border-white/5 opacity-50 cursor-not-allowed'
                     }`}
                   >
                     <div className="flex items-center gap-4">
                       <span className="text-gray-500 font-bold">[6]</span>
-                      <span className="font-bold text-lg text-[#ff00ea]">SYSTEM REPAIR (+1 HP)</span>
+                      <span className="font-bold text-lg text-[#ff00ea]">SYSTEM REPAIR (+5 HP)</span>
                     </div>
-                    <div className="font-bold text-[#ffd700]">15 CR</div>
+                    <div className="font-bold text-[#ffd700]">500 CR</div>
                   </div>
                 </div>
 
