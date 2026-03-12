@@ -30,11 +30,12 @@ export class GameEngine {
   currentLevel = 1;
   levelGoal = 1000; // Distance to reach in level mode
   w = 0; h = 0;
-  score = 0; money = 0; health = 20; maxHealth = 20;
+  score = 0; money = 0; health = 10; maxHealth = 10;
   camX = 0; px = 100; py = 100; vx = 0; vy = 0;
-  jumpCount = 0; dashCooldown = 0; invulnTime = 0;
+  jumpCount = 0; dashCooldown = 0; invulnTime = 0; abilityCooldown = 0;
   lastDir = 1; shootCooldown = 0;
   mouseX = 0; mouseY = 0;
+  currentZoom = 1; targetZoom = 1; inBossFight = false;
   currentGun = 'pistol';
   shopOpen = false;
   
@@ -94,6 +95,7 @@ export class GameEngine {
       if (this.mode === 'PLAYING') {
         if (!this.shopOpen && (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW')) this.triggerJump();
         if (!this.shopOpen && e.code === 'ShiftLeft') this.triggerDash();
+        if (!this.shopOpen && e.code === 'KeyE') this.triggerAbility();
       }
     });
     window.addEventListener('keyup', (e) => this.keys[e.code] = false);
@@ -110,7 +112,7 @@ export class GameEngine {
 
   triggerJump() {
     if (this.jumpCount < 2 && !this.shopOpen) {
-      this.vy = -20; // Increased jump strength to 20
+      this.vy = this.inBossFight ? -22.5 : -15; // 50% stronger jump during boss
       this.jumpCount++;
       audio.playSfx('jump');
       this.spawnParticles(this.px, this.py + 20, COLORS.neonCyan, 15, 3);
@@ -119,11 +121,48 @@ export class GameEngine {
 
   triggerDash() {
     if (this.dashCooldown <= 0 && !this.shopOpen) {
-      this.vx = this.lastDir * 32;
+      this.vx = this.lastDir * 24; // Reverted dash speed
       this.dashCooldown = 45;
       this.screenShake = 5;
       audio.playSfx('dash');
       for(let i=0; i<20; i++) this.spawnParticles(this.px, this.py, COLORS.neonPink, 1, 0.5);
+    }
+  }
+
+  triggerAbility() {
+    if (this.abilityCooldown <= 0 && !this.shopOpen) {
+      let dmg = 5;
+      if (this.currentLevel >= 20) dmg = 10;
+      else if (this.currentLevel >= 15) dmg = 9;
+      else if (this.currentLevel >= 10) dmg = 7;
+      else if (this.currentLevel >= 5) dmg = 10;
+      else dmg = 5;
+
+      let hitSomething = false;
+      for (let ei = this.enemies.length - 1; ei >= 0; ei--) {
+        let e = this.enemies[ei];
+        e.hp -= dmg;
+        this.spawnText(e.x + (Math.random()-0.5)*20, e.y - 50, "-" + dmg + " (SMITE)", COLORS.neonPink);
+        this.spawnParticles(e.x, e.y, COLORS.neonPink, 50, 10);
+        hitSomething = true;
+        
+        if (e.hp <= 0) {
+          this.spawnParticles(e.x, e.y, "#ff5500", 40); audio.playSfx('explosion');
+          this.coins.push({x: e.x, y: e.y - 20, vx: (Math.random() - 0.5) * 8, vy: -8, value: e.creditValue});
+          this.score++; this.enemies.splice(ei, 1); this.screenShake = 6;
+          
+          if (e.isBoss && this.gameMode === 'LEVELS') {
+            this.completeLevel();
+          }
+          this.notifyStats();
+        }
+      }
+
+      if (hitSomething) {
+        this.screenShake = 20;
+        audio.playSfx('explosion');
+        this.abilityCooldown = 180; // 3 seconds cooldown
+      }
     }
   }
   
@@ -175,7 +214,8 @@ export class GameEngine {
     this.score = 0; this.money = 0; this.health = this.maxHealth;
     this.bullets = []; this.enemyBullets = []; this.enemies = [];
     this.coins = []; this.particles = []; this.trails = []; this.floatingTexts = [];
-    this.camX = 0; this.lastLandedPlat = -1; this.invulnTime = 0;
+    this.camX = 0; this.lastLandedPlat = -1; this.invulnTime = 0; this.abilityCooldown = 0;
+    this.currentZoom = 1; this.targetZoom = 1; this.inBossFight = false;
     this.lastEnemyX = 0;
     this.currentGun = "pistol"; this.shopOpen = false;
     this.platforms = [{ x: -200, y: this.h - 100, w: 1400, id: 0 }];
@@ -194,6 +234,7 @@ export class GameEngine {
       currentLevel: this.currentLevel,
       levelGoal: this.gameMode === 'LEVELS' ? 15 : 0,
       distance: this.gameMode === 'LEVELS' ? Math.min(15, this.platforms[this.platforms.length - 1].id) : Math.floor(this.px / 10),
+      abilityCooldown: this.abilityCooldown,
       boss: this.enemies.find(e => e.isBoss) ? { hp: this.enemies.find(e => e.isBoss).hp, maxHp: this.enemies.find(e => e.isBoss).maxHp, level: this.currentLevel } : null
     });
   }
@@ -246,12 +287,12 @@ export class GameEngine {
     if (!this.shopOpen) {
       if (this.invulnTime > 0) this.invulnTime--;
 
-      if (this.keys['ArrowLeft'] || this.keys['KeyA']) { this.vx -= 1.8; this.lastDir = -1; }
-      if (this.keys['ArrowRight'] || this.keys['KeyD']) { this.vx += 1.8; this.lastDir = 1; }
+      if (this.keys['ArrowLeft'] || this.keys['KeyA']) { this.vx -= 1.2; this.lastDir = -1; }
+      if (this.keys['ArrowRight'] || this.keys['KeyD']) { this.vx += 1.2; this.lastDir = 1; }
       
       this.vx *= 0.85; this.vy += 0.7;
       
-      if (this.vx > 18) this.vx = 18; if (this.vx < -18) this.vx = -18;
+      if (this.vx > 12) this.vx = 12; if (this.vx < -12) this.vx = -12;
       if (this.vy > 20) this.vy = 20;
 
       this.px += this.vx; this.py += this.vy;
@@ -260,11 +301,29 @@ export class GameEngine {
           this.trails.push({ x: this.px, y: this.py, dir: this.lastDir, life: 1 });
       }
 
+      // Boss Fight State Management
+      let bossActive = this.enemies.some(e => e.isBoss && e.state !== 'spawning');
+      if (bossActive && !this.inBossFight) {
+          this.inBossFight = true;
+          this.maxHealth += 10;
+          this.health += 10;
+          this.targetZoom = 0.6; // Zoom out
+          this.notifyStats();
+      } else if (!bossActive && this.inBossFight) {
+          this.inBossFight = false;
+          this.maxHealth -= 10;
+          if (this.health > this.maxHealth) this.health = this.maxHealth;
+          this.targetZoom = 1;
+          this.notifyStats();
+      }
+      this.currentZoom += (this.targetZoom - this.currentZoom) * 0.05;
+
       this.camX += (this.px - this.camX - this.w / 3) * 0.1;
       if (this.px < this.camX + 20) { this.px = this.camX + 20; if (this.vx < 0) this.vx = 0; }
       
       if (this.shootCooldown > 0) this.shootCooldown--;
       if (this.dashCooldown > 0) this.dashCooldown--;
+      if (this.abilityCooldown > 0) this.abilityCooldown--;
 
       if ((this.keys['KeyZ'] || this.keys['Mouse0']) && this.shootCooldown <= 0) {
           const g = GUNS[this.currentGun];
@@ -297,60 +356,46 @@ export class GameEngine {
       let lastPlat = this.platforms[this.platforms.length - 1];
       if (lastPlat.x < this.camX + this.w) {
           if (this.gameMode === 'FREE' || lastPlat.id < 15) {
+              let nextId = Math.floor(lastPlat.id) + 1;
               const plat = {
                   x: lastPlat.x + lastPlat.w + 120 + Math.random() * 250,
                   y: this.h - 180 - Math.random() * 120 + 40,
                   w: 250 + Math.random() * 400,
-                  id: this.platforms.length
+                  id: nextId
               };
               
-              if (this.gameMode === 'LEVELS' && plat.id === 15) {
-                  plat.w = 2000; // Make boss platform very wide
+              let isBoss = false;
+              if ((this.gameMode === 'LEVELS' && plat.id === 15) || (this.gameMode === 'FREE' && plat.id > 0 && plat.id % 15 === 0)) {
+                  isBoss = true;
+                  plat.w = 4000; // Make boss platform extremely wide and straight
+                  plat.y = this.h - 150; // Flat height
               }
               
               this.platforms.push(plat);
           
-          let isBoss = false;
           let spawnEnemy = false;
           
-          if (this.gameMode === 'LEVELS' && plat.id === 15) {
-              isBoss = true;
-              spawnEnemy = true;
-          } else if (this.gameMode === 'FREE' && plat.id > 0 && plat.id % 20 === 0) {
-              isBoss = true;
-              spawnEnemy = true;
-          } else if (plat.id > 0 && plat.id % 5 === 0) {
+          if (isBoss) {
               spawnEnemy = true;
           }
 
           if (spawnEnemy) {
-              let type = Math.random() > 0.8 ? 'heavy' : (Math.random() > 0.7 ? 'fast' : 'drone');
-              let hp = 20; // Basic enemy is 20 HP
-              let creditValue = 20; // Basic enemy is 20 CR
-              let size = 1;
-              
-              if (isBoss) {
-                  type = 'boss';
-                  hp = 15;
-                  creditValue = 15;
-                  size = 2.5;
-              } else {
-                  if (type === 'heavy') { hp = 50; creditValue = 100; size = 1.5; }
-                  if (type === 'fast') { hp = 10; creditValue = 40; size = 0.8; }
-
-                  // Scale credits based on distance in Free Play or level in Levels mode
-                  const scale = this.gameMode === 'FREE' ? Math.floor(this.px / 5000) + 1 : this.currentLevel;
-                  creditValue *= scale;
-              }
+              let type = 'boss';
+              let hp = 30; // Decreased health to 30
+              let creditValue = 50;
+              let size = 4; // Huge boss
+              let startY = plat.y - 1000; // Drop from sky
+              let state = 'spawning';
+              let targetY = plat.y - 80; // Adjust for larger size
 
               this.enemies.push({
-                  x: plat.x + plat.w / 2, y: plat.y - 20, // Grounded on platform
-                  cooldown: 60, dir: Math.random() < 0.5 ? 1 : -1,
+                  x: plat.x + plat.w / 2, y: startY, targetY: targetY,
+                  cooldown: 300, dir: -1, // 5 seconds initial cooldown
                   plat: plat, 
                   maxHp: hp, 
                   hp: hp,
                   type, creditValue, size,
-                  isBoss
+                  isBoss, state
               });
           }
         }
@@ -359,10 +404,11 @@ export class GameEngine {
       // Enemy collisions (Stomp removed)
       for (let ei = this.enemies.length - 1; ei >= 0; ei--) {
         const e = this.enemies[ei];
+        const size = e.size || 1;
         const dx = Math.abs(this.px - e.x);
         const dy = Math.abs(this.py - e.y);
         
-        if (dx < 30 && dy < 30) {
+        if (dx < 30 * size && dy < 30 * size) {
           if (this.invulnTime <= 0) {
             // Take damage on collision
             this.health--;
@@ -412,7 +458,11 @@ export class GameEngine {
           let hit = false;
           for(let ei = this.enemies.length - 1; ei >= 0; ei--) {
               let e = this.enemies[ei];
-              if (Math.abs(b.x - e.x) < 30 && Math.abs(b.y - e.y) < 30) {
+              const size = e.size || 1;
+              const hitX = e.isBoss ? 80 : 30 * size;
+              const hitY = e.isBoss ? 60 : 30 * size;
+
+              if (Math.abs(b.x - e.x) < hitX && Math.abs(b.y - e.y) < hitY) {
                   e.hp -= b.dmg; hit = true;
                   this.spawnParticles(b.x, b.y, b.color, 10);
                   this.spawnText(e.x + (Math.random()-0.5)*20, e.y - 30, "-" + b.dmg, b.color);
@@ -435,7 +485,19 @@ export class GameEngine {
       }
 
       this.enemies.forEach(e => {
-          const speed = e.type === 'fast' ? 4 : (e.type === 'heavy' ? 1 : (e.type === 'boss' ? 1.5 : 2));
+          if (e.state === 'spawning') {
+              e.y += 20; // Drop down fast
+              if (e.y >= e.targetY) {
+                  e.y = e.targetY;
+                  e.state = 'active';
+                  this.screenShake = 40; // Huge impact when landing
+                  audio.playSfx('explosion');
+                  this.spawnParticles(e.x, e.y, COLORS.enemyGlow, 100, 10);
+              }
+              return; // Don't move or shoot while spawning
+          }
+
+          const speed = e.type === 'fast' ? 4 : (e.type === 'heavy' ? 1 : (e.type === 'boss' ? 3 : 2));
           e.x += e.dir * speed;
           if (e.x < e.plat.x + 30 || e.x > e.plat.x + e.plat.w - 30) e.dir *= -1;
           
@@ -445,12 +507,12 @@ export class GameEngine {
               let dist = Math.hypot(dx, dy);
               
               if (e.isBoss) {
-                  let spread = 4 + this.currentLevel;
-                  for(let i = -spread; i <= spread; i+=3) {
-                      this.enemyBullets.push({ x: e.x, y: e.y, vx: (dx/dist)*6 + (Math.random()-0.5)*2, vy: (dy/dist)*6 + i });
+                  let spread = 6 + this.currentLevel;
+                  for(let i = -spread; i <= spread; i+=2) {
+                      this.enemyBullets.push({ x: e.x, y: e.y, vx: (dx/dist)*8 + (Math.random()-0.5)*3, vy: (dy/dist)*8 + i });
                   }
-                  e.cooldown = 60;
-                  this.screenShake = 5; audio.playSfx('shoot');
+                  e.cooldown = 45; // Shoots faster
+                  this.screenShake = 8; audio.playSfx('shoot');
               } else {
                   this.enemyBullets.push({x: e.x, y: e.y, vx: (dx/dist)*6, vy: (dy/dist)*6});
                   e.cooldown = 90; 
@@ -675,7 +737,7 @@ export class GameEngine {
     ctx.beginPath(); ctx.arc(2, -2, 2, 0, Math.PI*2); ctx.fill();
     ctx.shadowBlur = 0;
 
-    if (hp > 0 && maxHp > 0 && size === 1) {
+    if (hp > 0 && maxHp > 0) {
         ctx.fillStyle = "#333";
         ctx.fillRect(-15, -25, 30, 4);
         ctx.fillStyle = COLORS.enemyGlow;
@@ -705,6 +767,12 @@ export class GameEngine {
     }
     else if (this.mode === 'PLAYING' || this.mode === 'GAMEOVER') {
       ctx.save();
+      
+      // Apply Camera Zoom
+      ctx.translate(this.w / 2, this.h);
+      ctx.scale(this.currentZoom, this.currentZoom);
+      ctx.translate(-this.w / 2, -this.h);
+
       ctx.translate(-Math.round(this.camX), 0);
 
       this.platforms.forEach(p => {
@@ -772,7 +840,45 @@ export class GameEngine {
       if (this.mode === 'PLAYING') {
         this.drawCyborg(this.px, this.py, true, playerAlpha);
       }
-      this.enemies.forEach(e => this.drawDrone(e.x, e.y, e.size || 1, e.hp, e.maxHp));
+      this.enemies.forEach(e => {
+          if (e.type === 'boss') {
+              ctx.save();
+              ctx.translate(e.x, e.y);
+              ctx.scale(e.dir, 1);
+              
+              // Boss Body (Large Mechanical Beast)
+              ctx.fillStyle = e.state === 'telegraph' ? '#ff0000' : '#1a1a1a';
+              ctx.shadowColor = e.state === 'telegraph' ? '#ff0000' : '#000';
+              ctx.shadowBlur = e.state === 'telegraph' ? 20 : 0;
+              
+              // Main chassis
+              ctx.fillRect(-80, -60, 160, 80);
+              
+              // Treads / Base
+              ctx.fillStyle = '#0a0a0a';
+              ctx.fillRect(-90, 20, 180, 30);
+              
+              // Glowing Core / Eye
+              ctx.fillStyle = e.state === 'charging' ? '#ffffff' : COLORS.neonPink;
+              ctx.shadowColor = ctx.fillStyle;
+              ctx.shadowBlur = 30;
+              ctx.beginPath();
+              ctx.arc(40, -20, 20, 0, Math.PI * 2);
+              ctx.fill();
+              
+              ctx.restore();
+              
+              // Boss Health Bar
+              if (e.hp > 0 && e.maxHp > 0) {
+                  ctx.fillStyle = "#333";
+                  ctx.fillRect(e.x - 80, e.y - 100, 160, 8);
+                  ctx.fillStyle = COLORS.neonPink;
+                  ctx.fillRect(e.x - 80, e.y - 100, 160 * (e.hp / e.maxHp), 8);
+              }
+          } else {
+              this.drawDrone(e.x, e.y, e.size || 1, e.hp, e.maxHp);
+          }
+      });
       
       ctx.restore();
     }

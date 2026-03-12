@@ -8,7 +8,7 @@ export default function App() {
   const engineRef = useRef<GameEngine | null>(null);
   
   const [gameState, setGameState] = useState<'TITLE' | 'PLAYING' | 'GAMEOVER'>('TITLE');
-  const [stats, setStats] = useState({ score: 0, money: 0, health: 5, maxHealth: 5, weapon: 'pistol', boss: null as any, gameMode: 'FREE' as 'FREE' | 'LEVELS', currentLevel: 1, levelGoal: 1000, distance: 0 });
+  const [stats, setStats] = useState({ score: 0, money: 0, health: 10, maxHealth: 10, weapon: 'pistol', boss: null as any, gameMode: 'FREE' as 'FREE' | 'LEVELS', currentLevel: 1, levelGoal: 1000, distance: 0, abilityCooldown: 0 });
   const [shopOpen, setShopOpen] = useState(false);
   const [damageFlash, setDamageFlash] = useState(false);
   const [bestScore, setBestScore] = useState(parseInt(localStorage.getItem('pm_best') || '0'));
@@ -156,8 +156,23 @@ export default function App() {
                     <span className="text-gray-400 text-sm">SYS //</span>
                     <div className="flex gap-1">
                       {Array.from({ length: stats.maxHealth }).map((_, i) => (
-                        <div key={i} className={`w-5 h-5 rounded-sm ${i < stats.health ? 'bg-[#39ff14] shadow-[0_0_10px_#39ff14]' : 'bg-gray-800'}`} />
+                        <div key={i} className={`w-3 h-4 rounded-sm ${i < stats.health ? 'bg-[#39ff14] shadow-[0_0_10px_#39ff14]' : 'bg-gray-800'}`} />
                       ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-gray-400 text-sm">SMITE [E] //</span>
+                    <div className="w-32 h-4 bg-gray-800 rounded-sm overflow-hidden relative">
+                      <div 
+                        className="h-full bg-[#ff00ea] transition-all duration-100"
+                        style={{ width: `${stats.abilityCooldown <= 0 ? 100 : 100 - (stats.abilityCooldown / 180) * 100}%` }}
+                      />
+                      {stats.abilityCooldown <= 0 && (
+                        <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-white drop-shadow-md">
+                          READY
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
