@@ -480,6 +480,37 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Boss HUD */}
+                <AnimatePresence>
+                  {stats.boss && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: -50 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -50 }}
+                      className="absolute left-1/2 -translate-x-1/2 top-4 md:top-8 w-full max-w-md px-4"
+                    >
+                      <div className="bg-black/80 border border-red-500/50 rounded-xl p-4 backdrop-blur-md">
+                        <div className="flex justify-between items-end mb-2">
+                          <div className="text-red-500 font-black tracking-tighter text-xl italic uppercase">
+                            {stats.boss.name || 'UNKNOWN ENTITY'}
+                          </div>
+                          <div className="text-red-500/50 text-xs font-bold">
+                            LVL {stats.boss.level}
+                          </div>
+                        </div>
+                        <div className="h-3 bg-gray-900 rounded-full overflow-hidden border border-red-500/20">
+                          <motion.div 
+                            className="h-full bg-gradient-to-r from-red-600 to-red-400 shadow-[0_0_15px_rgba(239,68,68,0.5)]"
+                            initial={{ width: '100%' }}
+                            animate={{ width: `${(stats.boss.hp / stats.boss.maxHp) * 100}%` }}
+                            transition={{ type: 'spring', bounce: 0, duration: 0.3 }}
+                          />
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
                 <div className="flex flex-col items-end gap-4">
                   <div className="text-right hidden md:block">
                     <div className="text-gray-400 text-sm">HI-SCORE // {bestScore}</div>

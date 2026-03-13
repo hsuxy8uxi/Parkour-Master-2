@@ -267,7 +267,12 @@ export class GameEngine {
       levelGoal: this.gameMode === 'LEVELS' ? 15 : 0,
       distance: this.gameMode === 'LEVELS' ? Math.min(15, this.platforms[this.platforms.length - 1].id) : Math.floor(this.px / 10),
       abilityCooldown: this.abilityCooldown,
-      boss: this.enemies.find(e => e.isBoss) ? { hp: this.enemies.find(e => e.isBoss).hp, maxHp: this.enemies.find(e => e.isBoss).maxHp, level: this.currentLevel } : null
+      boss: this.enemies.find(e => e.isBoss) ? { 
+          hp: this.enemies.find(e => e.isBoss)!.hp, 
+          maxHp: this.enemies.find(e => e.isBoss)!.maxHp, 
+          level: this.currentLevel,
+          name: this.enemies.find(e => e.isBoss)!.bossName
+      } : null
     });
   }
 
@@ -366,7 +371,7 @@ export class GameEngine {
       let bossActive = this.enemies.some(e => e.isBoss && e.state !== 'spawning' && e.state !== 'waiting') || this.bossDefeated;
       if (bossActive && !this.inBossFight) {
           this.inBossFight = true;
-          this.targetZoom = 0.6; // Zoom out
+          this.targetZoom = Math.max(0.4, Math.min(1.5, this.w / 1600)); // Zoom to perfectly fit 1600px (1500px arena + margin)
           this.notifyStats();
       } else if (!bossActive && this.inBossFight) {
           this.inBossFight = false;
@@ -376,7 +381,7 @@ export class GameEngine {
       this.currentZoom += (this.targetZoom - this.currentZoom) * 0.05;
 
       if (this.inBossFight) {
-          let bossPlats = this.platforms.filter(p => p.w === 4000);
+          let bossPlats = this.platforms.filter(p => p.w === 1500);
           let bossPlat = bossPlats[bossPlats.length - 1];
           if (bossPlat) {
               if (this.px > bossPlat.x + bossPlat.w - 100) {
@@ -387,11 +392,17 @@ export class GameEngine {
                   this.px = bossPlat.x + 100;
                   if (this.vx < 0) this.vx = 0;
               }
+              // Center camera on arena
+              const arenaCenter = bossPlat.x + bossPlat.w / 2;
+              const targetCamX = arenaCenter - this.w / 2;
+              this.camX += (targetCamX - this.camX) * 0.1;
           }
+      } else {
+          this.camX += (this.px - this.camX - this.w / 3) * 0.1;
       }
-
-      this.camX += (this.px - this.camX - this.w / 3) * 0.1;
-      if (this.px < this.camX + 20) { this.px = this.camX + 20; if (this.vx < 0) this.vx = 0; }
+      
+      let leftEdge = this.camX + this.w / 2 - this.w / (2 * this.currentZoom);
+      if (this.px < leftEdge + 20) { this.px = leftEdge + 20; if (this.vx < 0) this.vx = 0; }
       
       if (this.shootCooldown > 0) this.shootCooldown--;
       if (this.dashCooldown > 0) this.dashCooldown--;
@@ -456,14 +467,13 @@ export class GameEngine {
               let isBoss = false;
               if ((this.gameMode === 'LEVELS' && plat.id === 15) || (this.gameMode === 'FREE' && plat.id > 0 && plat.id % 15 === 0)) {
                   isBoss = true;
-                  plat.w = 4000; // Make boss platform extremely wide and straight
+                  plat.w = 1500; // Make boss platform smaller
                   plat.y = this.h - 150; // Flat height
               }
               
               this.platforms.push(plat);
           
           let spawnEnemy = false;
-          
           if (isBoss) {
               spawnEnemy = true;
           }
@@ -471,51 +481,88 @@ export class GameEngine {
           if (spawnEnemy) {
               let type = 'boss';
               
-              const BOSS_TYPES = [
-                  { name: "JUGGERNAUT", color: "#ff0000", size: 4, attackType: "spread" },
-                  { name: "SERAPHIM", color: "#00f3ff", size: 3, attackType: "laser" },
-                  { name: "BEHEMOTH", color: "#39ff14", size: 5, attackType: "heavy" },
-                  { name: "VALKYRIE", color: "#ff00ea", size: 3.5, attackType: "burst" },
-                  { name: "OMEGA", color: "#ffd700", size: 6, attackType: "hell" },
-                  { name: "TITAN", color: "#ff5500", size: 5.5, attackType: "spread" },
-                  { name: "ECLIPSE", color: "#9900ff", size: 4.5, attackType: "laser" },
-                  { name: "LEVIATHAN", color: "#00ffaa", size: 7, attackType: "heavy" },
-                  { name: "NEMESIS", color: "#ff0055", size: 4, attackType: "burst" },
-                  { name: "APOLLYON", color: "#ffffff", size: 6.5, attackType: "hell" }
+              const BOSS_DATA = [
+                  { name: "IRON GOLIATH", color: "#808080", attackType: "heavy" },
+                  { name: "NEON STALKER", color: "#39ff14", attackType: "burst" },
+                  { name: "PLASMA TITAN", color: "#00f3ff", attackType: "laser" },
+                  { name: "CYBER REAPER", color: "#ff00ea", attackType: "spread" },
+                  { name: "VOLT CRUSHER", color: "#ffd700", attackType: "hell" },
+                  { name: "OMEGA SENTINEL", color: "#ff5500", attackType: "heavy" },
+                  { name: "VOID WALKER", color: "#9900ff", attackType: "laser" },
+                  { name: "TITANIUM BEAST", color: "#c0c0c0", attackType: "spread" },
+                  { name: "LASER WRAITH", color: "#ff0055", attackType: "burst" },
+                  { name: "CORE MELTER", color: "#ffaa00", attackType: "hell" },
+                  { name: "QUARTZ GUARDIAN", color: "#ffffff", attackType: "heavy" },
+                  { name: "SHADOW ENGINE", color: "#333333", attackType: "laser" },
+                  { name: "HYPERION X", color: "#0066ff", attackType: "spread" },
+                  { name: "GRAVITY LORD", color: "#440044", attackType: "burst" },
+                  { name: "PULSE DEMON", color: "#ff0000", attackType: "hell" },
+                  { name: "CHROME OVERLORD", color: "#e0e0e0", attackType: "heavy" },
+                  { name: "ZENITH PRIME", color: "#00ffcc", attackType: "laser" },
+                  { name: "VECTOR KING", color: "#ffcc00", attackType: "spread" },
+                  { name: "ATOM SMASHER", color: "#00ff00", attackType: "burst" },
+                  { name: "THE SINGULARITY", color: "#ffffff", attackType: "hell" }
               ];
-              
-              let bossIndex = (this.currentLevel - 1) % BOSS_TYPES.length;
-              let cycle = Math.floor((this.currentLevel - 1) / BOSS_TYPES.length);
-              let bossDef = BOSS_TYPES[bossIndex];
-              
-              // Standardized boss health progression: 3, 6, 9, 10, 15, 18, 21, 24, 25, 30, 33, 36, 39, 40, 45...
-              // Pattern: level * 3, but level * 3 - 2 every 5th level (starting at 4)
-              // Increased by 17 as requested
-              let hp = ((this.currentLevel % 5 === 4) ? (this.currentLevel * 3 - 2) : (this.currentLevel * 3)) + 17;
-              
-              let creditValue = Math.floor(50 * Math.pow(1.07, this.currentLevel - 1));
-              let size = bossDef.size;
-              let startY = plat.y - 1000; // Drop from sky
-              let state = 'spawning';
-              let targetY = plat.y - (12.5 * size); // Adjust for larger size
-              
-              // Generate a unique name if we loop past the defined names
-              let finalBossName = bossDef.name;
-              if (cycle > 0) {
-                  const prefixes = ["DARK", "VOID", "NEO", "CYBER", "DOOM", "NULL", "ABYSS", "MECHA", "GHOST", "BLOOD"];
-                  let prefix = prefixes[(cycle - 1) % prefixes.length];
-                  finalBossName = `${prefix} ${bossDef.name}`;
-              }
 
+              const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+              const getBossStats = (level: number) => {
+                  let size, speed, dmg;
+                  if (level <= 1) {
+                      size = 6; speed = 1; dmg = 2;
+                  } else if (level <= 5) {
+                      const t = (level - 1) / (5 - 1);
+                      size = lerp(6, 4, t);
+                      speed = lerp(1, 3, t);
+                      dmg = lerp(2, 5, t);
+                  } else if (level <= 10) {
+                      const t = (level - 5) / (10 - 5);
+                      size = lerp(4, 3, t);
+                      speed = lerp(3, 5, t);
+                      dmg = lerp(5, 4, t);
+                  } else if (level <= 20) {
+                      const t = (level - 10) / (20 - 10);
+                      size = lerp(3, 6, t);
+                      speed = lerp(5, 2, t);
+                      dmg = lerp(4, 8, t);
+                  } else {
+                      size = 6;
+                      speed = 2 + (level - 20) * 0.1;
+                      dmg = 8 + (level - 20) * 0.5;
+                  }
+
+                  // New HP formula: 3, 6, 9, 10, 13, 16, 19, 20...
+                  const hp = Math.floor(level / 4) * 10 + (level % 4) * 3;
+                  
+                  return { size, speed, hp: Math.max(1, hp), dmg: Math.floor(dmg) };
+              };
+              
+              let bossIndex;
+              if (this.gameMode === 'FREE') {
+                  bossIndex = Math.floor(this.random() * BOSS_DATA.length);
+              } else {
+                  bossIndex = (this.currentLevel - 1) % BOSS_DATA.length;
+              }
+              
+              let bossDef = BOSS_DATA[bossIndex];
+              const stats = getBossStats(this.currentLevel);
+              
+              const creditValue = Math.floor(50 * Math.pow(1.1, this.currentLevel - 1));
+              let targetY = plat.y - (12.5 * stats.size);
+              
               this.enemies.push({
-                  x: 0, y: 0, targetY: targetY,
-                  cooldown: 300, dir: -1, // 5 seconds initial cooldown
+                  x: plat.x + plat.w / 2, 
+                  y: 0, 
+                  targetY: targetY,
+                  cooldown: 300, 
+                  dir: -1,
                   plat: plat, 
-                  maxHp: hp, 
-                  hp: hp,
-                  type, creditValue, size,
+                  maxHp: stats.hp, 
+                  hp: stats.hp,
+                  type, creditValue, size: stats.size,
+                  speed: stats.speed,
+                  damage: stats.dmg,
                   isBoss, state: 'waiting',
-                  bossName: finalBossName,
+                  bossName: bossDef.name,
                   bossColor: bossDef.color,
                   attackType: bossDef.attackType
               });
@@ -536,7 +583,7 @@ export class GameEngine {
         if (dx < hitX && dy < hitY) {
           if (this.invulnTime <= 0) {
             // Take damage on collision
-            let dmg = e.isBoss ? 4 : 1;
+            let dmg = e.damage || (e.isBoss ? 4 : 1);
             this.health -= dmg;
             this.screenShake = e.isBoss ? 20 : 10;
             this.invulnTime = 60;
@@ -658,7 +705,7 @@ export class GameEngine {
 
           if (e.isBoss) {
               // Boss AI
-              const speed = e.attackType === 'laser' ? 5 : (e.attackType === 'heavy' ? 2 : 3);
+              const speed = e.speed || 2;
               e.x += e.dir * speed;
               if (e.x < e.plat.x + 100 || e.x > e.plat.x + e.plat.w - 100) e.dir *= -1;
               
