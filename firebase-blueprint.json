@@ -1,0 +1,38 @@
+{
+  "entities": {
+    "Score": {
+      "title": "Score",
+      "description": "A high score entry",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string", "description": "The player's name" },
+        "score": { "type": "number", "description": "The score achieved" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "When the score was achieved" }
+      },
+      "required": ["username", "score", "timestamp"]
+    },
+    "UserSave": {
+      "title": "UserSave",
+      "description": "Cross-device save data",
+      "type": "object",
+      "properties": {
+        "money": { "type": "number" },
+        "unlockedLevel": { "type": "number" },
+        "currentGun": { "type": "string" },
+        "bestScore": { "type": "number" },
+        "username": { "type": "string" }
+      },
+      "required": ["money", "unlockedLevel", "currentGun", "bestScore", "username"]
+    }
+  },
+  "firestore": {
+    "/scores/{scoreId}": {
+      "schema": "Score",
+      "description": "Collection of high scores"
+    },
+    "/saves/{syncKey}": {
+      "schema": "UserSave",
+      "description": "User progress saves"
+    }
+  }
+}

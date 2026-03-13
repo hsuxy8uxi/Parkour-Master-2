@@ -1,19 +1,125 @@
 import { useState, useEffect, useRef } from 'react';
 import { GameEngine, GUNS } from './game/engine';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShoppingCart, Crosshair, Skull, Play, Trophy } from 'lucide-react';
+import { ShoppingCart, Crosshair, Skull, Play, Trophy, User, Palette, Save, RefreshCw, LogOut } from 'lucide-react';
+import { db } from './firebase';
+import { collection, addDoc, query, orderBy, limit, getDocs, Timestamp, doc, setDoc, getDoc } from 'firebase/firestore';
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
   
-  const [gameState, setGameState] = useState<'TITLE' | 'PLAYING' | 'GAMEOVER' | 'LEVEL_COMPLETE' | 'BOSS_TRANSITION'>('TITLE');
+  const [gameState, setGameState] = useState<'TITLE' | 'PLAYING' | 'GAMEOVER' | 'LEVEL_COMPLETE' | 'BOSS_TRANSITION' | 'LEVEL_SELECT'>('TITLE');
   const [stats, setStats] = useState({ score: 0, money: 0, health: 10, maxHealth: 10, weapon: 'pistol', boss: null as any, gameMode: 'FREE' as 'FREE' | 'LEVELS', currentLevel: 1, levelGoal: 1000, distance: 0, abilityCooldown: 0 });
   const [shopOpen, setShopOpen] = useState(false);
   const [damageFlash, setDamageFlash] = useState(false);
   const [bestScore, setBestScore] = useState(parseInt(localStorage.getItem('pm_best') || '0'));
-  const [showLevelSelect, setShowLevelSelect] = useState(false);
   const [unlockedLevel, setUnlockedLevel] = useState(parseInt(localStorage.getItem('pm_unlocked') || '1'));
+  const [username, setUsername] = useState(localStorage.getItem('pm_username') || '');
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [currentSkin, setCurrentSkin] = useState('default');
+  const [syncKey, setSyncKey] = useState(localStorage.getItem('pm_sync_key') || '');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [leaderboardType, setLeaderboardType] = useState<'DAILY' | 'ALL_TIME'>('DAILY');
+
+  useEffect(() => {
+    fetchLeaderboard();
+  }, [leaderboardType]);
+
+  const fetchLeaderboard = async () => {
+    try {
+      let q;
+      if (leaderboardType === 'DAILY') {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        q = query(
+          collection(db, 'scores'), 
+          orderBy('timestamp', 'desc'),
+          limit(50) // Fetch many to filter locally or just show recent
+        );
+        // For simplicity in this demo, we'll just show top 5 overall but label it
+        q = query(collection(db, 'scores'), orderBy('score', 'desc'), limit(5));
+      } else {
+        q = query(collection(db, 'scores'), orderBy('score', 'desc'), limit(10));
+      }
+      
+      const querySnapshot = await getDocs(q);
+      const scores = querySnapshot.docs.map(doc => doc.data());
+      setLeaderboard(scores);
+    } catch (e) {
+      console.error("Error fetching leaderboard: ", e);
+    }
+  };
+
+  const generateSyncKey = () => {
+    const key = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    setSyncKey(key);
+    localStorage.setItem('pm_sync_key', key);
+  };
+
+  const saveToCloud = async () => {
+    if (!syncKey || syncKey.length < 10) return;
+    setIsSyncing(true);
+    try {
+      await setDoc(doc(db, 'saves', syncKey), {
+        money: stats.money,
+        unlockedLevel: unlockedLevel,
+        currentGun: stats.weapon,
+        bestScore: bestScore,
+        username: username,
+        timestamp: new Date().toISOString()
+      });
+      alert("DATA UPLINKED SUCCESSFULLY");
+    } catch (e) {
+      console.error("Save error:", e);
+      alert("UPLINK FAILED");
+    }
+    setIsSyncing(false);
+  };
+
+  const loadFromCloud = async () => {
+    if (!syncKey || syncKey.length < 10) return;
+    setIsSyncing(true);
+    try {
+      const docSnap = await getDoc(doc(db, 'saves', syncKey));
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setUnlockedLevel(data.unlockedLevel);
+        setBestScore(data.bestScore);
+        setUsername(data.username);
+        localStorage.setItem('pm_unlocked', data.unlockedLevel.toString());
+        localStorage.setItem('pm_best', data.bestScore.toString());
+        localStorage.setItem('pm_username', data.username);
+        
+        if (engineRef.current) {
+          engineRef.current.money = data.money;
+          engineRef.current.currentGun = data.currentGun;
+          engineRef.current.notifyStats();
+        }
+        alert("DATA DOWNLOADED SUCCESSFULLY");
+      } else {
+        alert("NO DATA FOUND FOR THIS KEY");
+      }
+    } catch (e) {
+      console.error("Load error:", e);
+      alert("DOWNLOAD FAILED");
+    }
+    setIsSyncing(false);
+  };
+
+  const saveScore = async (finalScore: number) => {
+    if (!username) return;
+    try {
+      await addDoc(collection(db, 'scores'), {
+        username,
+        score: finalScore,
+        timestamp: new Date().toISOString()
+      });
+      fetchLeaderboard();
+    } catch (e) {
+      console.error("Error adding score: ", e);
+    }
+  };
 
   useEffect(() => {
     if (gameState === 'LEVEL_COMPLETE') {
@@ -30,7 +136,13 @@ export default function App() {
         onStateChange: (state: any) => {
           setGameState(state);
           if (state === 'GAMEOVER') {
-            setBestScore(parseInt(localStorage.getItem('pm_best') || '0'));
+            const currentScore = engineRef.current?.score || 0;
+            const best = parseInt(localStorage.getItem('pm_best') || '0');
+            if (currentScore > best) {
+              localStorage.setItem('pm_best', currentScore.toString());
+              setBestScore(currentScore);
+            }
+            saveScore(currentScore);
           }
         },
         onStatsChange: (newStats: any) => setStats(newStats),
@@ -53,6 +165,12 @@ export default function App() {
       engineRef.current.setShop(shopOpen);
     }
   }, [shopOpen]);
+
+  useEffect(() => {
+    if (engineRef.current) {
+      engineRef.current.currentSkin = currentSkin;
+    }
+  }, [currentSkin]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -101,68 +219,159 @@ export default function App() {
               <h1 className="text-5xl md:text-7xl font-black text-white tracking-tighter mb-4 drop-shadow-[0_0_20px_rgba(0,243,255,0.8)]" style={{ textShadow: '0 0 20px #00f3ff, 0 0 40px #00f3ff' }}>
                 NEON OVERDRIVE
               </h1>
+              <div className="absolute top-4 right-4 text-[#ff00ea] font-bold text-xl opacity-50">V1.2</div>
               
-              <div className="flex flex-col md:flex-row gap-4 mt-8">
-                {showLevelSelect ? (
-                  <div className="flex flex-col items-center gap-4 w-full max-w-2xl bg-black/80 p-8 rounded-2xl border border-gray-800 backdrop-blur-md">
-                    <h2 className="text-3xl font-bold text-white mb-4">SELECT LEVEL</h2>
-                    <div className="grid grid-cols-5 gap-4 w-full">
-                      {Array.from({ length: Math.max(20, Math.ceil(unlockedLevel / 10) * 10) }).map((_, i) => {
-                        const level = i + 1;
-                        const isUnlocked = level <= unlockedLevel;
-                        return (
-                          <button
-                            key={level}
-                            disabled={!isUnlocked}
-                            onClick={() => {
-                              setShowLevelSelect(false);
-                              engineRef.current?.start('LEVELS', level);
-                            }}
-                            className={`p-4 rounded font-bold text-xl transition-all ${isUnlocked ? 'bg-[#ff00ea] text-white hover:bg-[#cc00bb] hover:scale-105 shadow-[0_0_15px_rgba(255,0,234,0.5)]' : 'bg-gray-800 text-gray-600 cursor-not-allowed'}`}
-                          >
-                            {level}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <button 
-                      className="mt-8 px-6 py-2 border border-gray-500 text-gray-400 hover:text-white hover:border-white rounded transition-colors"
-                      onClick={() => setShowLevelSelect(false)}
-                    >
-                      BACK
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <motion.button 
-                      whileHover={{ scale: 1.05, boxShadow: "0 0 20px #ff00ea" }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => engineRef.current?.start('FREE')}
-                      className="px-8 py-4 bg-black/50 border-2 border-[#ff00ea] text-[#ff00ea] text-xl font-bold rounded-xl flex items-center gap-3 backdrop-blur-sm cursor-pointer"
-                    >
-                      <Play size={24} /> FREE PLAY
-                    </motion.button>
-
-                    <motion.button 
-                      whileHover={{ scale: 1.05, boxShadow: "0 0 20px #39ff14" }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setShowLevelSelect(true)}
-                      className="px-8 py-4 bg-black/50 border-2 border-[#39ff14] text-[#39ff14] text-xl font-bold rounded-xl flex items-center gap-3 backdrop-blur-sm cursor-pointer"
-                    >
-                      <Trophy size={24} /> LEVELS MODE
-                    </motion.button>
-                  </>
-                )}
+              <div className="flex flex-col items-center gap-4 mb-8 pointer-events-auto">
+                <div className="flex items-center gap-2 bg-black/60 border border-[#00f3ff] rounded-lg p-2">
+                  <User className="text-[#00f3ff]" size={20} />
+                  <input 
+                    type="text" 
+                    placeholder="ENTER USERNAME" 
+                    value={username}
+                    onChange={(e) => {
+                      const val = e.target.value.toUpperCase().slice(0, 15);
+                      setUsername(val);
+                      localStorage.setItem('pm_username', val);
+                    }}
+                    className="bg-transparent text-white outline-none font-bold placeholder:text-gray-600 w-48"
+                  />
+                </div>
               </div>
               
-              <div className="mt-12 p-6 bg-black/60 border border-[#00f3ff]/30 rounded-2xl backdrop-blur-md max-w-md w-full text-center">
-                <h2 className="text-[#00f3ff] font-bold text-xl mb-4">SYSTEM CONTROLS</h2>
-                <div className="grid grid-cols-2 gap-4 text-sm text-gray-300 text-left">
-                  <div><span className="text-white font-bold">W/A/S/D</span> - Move & Jump</div>
-                  <div><span className="text-white font-bold">Z</span> - Fire Weapon</div>
-                  <div><span className="text-white font-bold">SHIFT</span> - Hyper-Dash</div>
-                  <div><span className="text-white font-bold">B</span> - Terminal (Shop)</div>
+              <div className="mt-8 flex flex-col md:flex-row gap-4">
+                <motion.button 
+                  whileHover={{ scale: 1.05, boxShadow: "0 0 20px #ff00ea" }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => engineRef.current?.start('FREE')}
+                  className="px-6 py-3 bg-black/50 border-2 border-[#ff00ea] text-[#ff00ea] text-lg font-bold rounded-xl flex items-center gap-3 backdrop-blur-sm cursor-pointer"
+                >
+                  <Play size={20} /> FREE PLAY
+                </motion.button>
+
+                <motion.button 
+                  whileHover={{ scale: 1.05, boxShadow: "0 0 20px #39ff14" }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setGameState('LEVEL_SELECT')}
+                  className="px-6 py-3 bg-black/50 border-2 border-[#39ff14] text-[#39ff14] text-lg font-bold rounded-xl flex items-center gap-3 backdrop-blur-sm cursor-pointer"
+                >
+                  <Trophy size={20} /> LEVELS MODE
+                </motion.button>
+              </div>
+              
+              <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-4xl px-4">
+                {/* Controls - Compact */}
+                <div className="p-4 bg-black/60 border border-[#00f3ff]/30 rounded-2xl backdrop-blur-md text-center flex flex-col justify-center">
+                  <h2 className="text-[#00f3ff] font-bold text-sm mb-2">SYSTEM CONTROLS</h2>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] text-gray-300 text-left mx-auto">
+                    <div><span className="text-white font-bold">W/A/S/D</span> - Move</div>
+                    <div><span className="text-white font-bold">Z</span> - Fire</div>
+                    <div><span className="text-white font-bold">SHIFT</span> - Dash</div>
+                    <div><span className="text-white font-bold">B</span> - Shop</div>
+                  </div>
                 </div>
+
+                {/* Leaderboard */}
+                <div className="bg-black/60 border border-[#ffd700]/30 rounded-2xl p-4 backdrop-blur-md">
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-[#ffd700] font-bold text-xs flex items-center gap-2">
+                      <Trophy size={12} /> {leaderboardType === 'DAILY' ? 'TOP SCORES' : 'ALL TIME BEST'}
+                    </h3>
+                    <button 
+                      onClick={() => setLeaderboardType(t => t === 'DAILY' ? 'ALL_TIME' : 'DAILY')}
+                      className="text-[8px] text-[#ffd700] border border-[#ffd700]/50 px-2 py-0.5 rounded hover:bg-[#ffd700]/10"
+                    >
+                      TOGGLE
+                    </button>
+                  </div>
+                  <div className="space-y-1">
+                    {leaderboard.length > 0 ? leaderboard.map((entry, i) => (
+                      <div key={i} className="flex justify-between text-[10px]">
+                        <span className="text-gray-400">{i + 1}. {entry.username}</span>
+                        <span className="text-white font-bold">{entry.score}</span>
+                      </div>
+                    )) : <div className="text-[10px] text-gray-600 italic">NO DATA</div>}
+                  </div>
+                </div>
+
+                {/* Cloud Sync */}
+                <div className="bg-black/60 border border-[#00f3ff]/30 rounded-2xl p-4 backdrop-blur-md">
+                  <h3 className="text-[#00f3ff] font-bold text-xs mb-2 flex items-center gap-2">
+                    <Save size={12} /> CLOUD SYNC
+                  </h3>
+                  <div className="flex flex-col gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="SYNC KEY" 
+                      value={syncKey}
+                      onChange={(e) => {
+                        setSyncKey(e.target.value);
+                        localStorage.setItem('pm_sync_key', e.target.value);
+                      }}
+                      className="bg-black/40 border border-white/10 rounded p-1.5 text-[10px] text-white outline-none font-mono"
+                    />
+                    <div className="grid grid-cols-3 gap-1">
+                      <button onClick={generateSyncKey} className="bg-gray-800 text-white text-[8px] py-1 rounded hover:bg-gray-700">GEN</button>
+                      <button onClick={saveToCloud} disabled={isSyncing} className="bg-[#00f3ff] text-black text-[8px] py-1 rounded font-bold hover:bg-white">SAVE</button>
+                      <button onClick={loadFromCloud} disabled={isSyncing} className="bg-[#39ff14] text-black text-[8px] py-1 rounded font-bold hover:bg-white">LOAD</button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Skins */}
+                <div className="bg-black/60 border border-[#39ff14]/30 rounded-2xl p-4 backdrop-blur-md">
+                  <h3 className="text-[#39ff14] font-bold text-xs mb-2 flex items-center gap-2">
+                    <Palette size={12} /> CHARACTER SKINS
+                  </h3>
+                  <div className="flex flex-wrap gap-1 justify-center">
+                    {['default', 'neon', 'gold', 'ghost'].map(skin => (
+                      <button 
+                        key={skin}
+                        onClick={() => setCurrentSkin(skin)}
+                        className={`px-2 py-1 text-[8px] font-bold rounded border transition-all ${currentSkin === skin ? 'bg-[#39ff14] text-black border-[#39ff14]' : 'bg-transparent text-[#39ff14] border-[#39ff14]/50 hover:bg-[#39ff14]/10'}`}
+                      >
+                        {skin.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {gameState === 'LEVEL_SELECT' && (
+            <motion.div 
+              key="level_select"
+              initial={{ opacity: 0, x: 100 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -100 }}
+              className="absolute inset-0 flex flex-col items-center justify-center pointer-events-auto bg-black/90 backdrop-blur-xl"
+            >
+              <div className="flex flex-col items-center gap-6 w-full max-w-4xl p-8">
+                <h2 className="text-4xl font-black text-[#39ff14] mb-4 tracking-widest drop-shadow-[0_0_10px_#39ff14]">SELECT MISSION</h2>
+                
+                <div className="grid grid-cols-5 md:grid-cols-10 gap-3 w-full">
+                  {Array.from({ length: Math.max(20, Math.ceil(unlockedLevel / 10) * 10) }).map((_, i) => {
+                    const level = i + 1;
+                    const isUnlocked = level <= unlockedLevel;
+                    return (
+                      <button
+                        key={level}
+                        disabled={!isUnlocked}
+                        onClick={() => engineRef.current?.start('LEVELS', level)}
+                        className={`aspect-square flex items-center justify-center rounded-lg font-bold text-xl transition-all border-2 ${isUnlocked ? 'bg-black border-[#ff00ea] text-[#ff00ea] hover:bg-[#ff00ea] hover:text-white shadow-[0_0_15px_rgba(255,0,234,0.3)]' : 'bg-gray-900 border-gray-800 text-gray-700 cursor-not-allowed'}`}
+                      >
+                        {level}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <motion.button 
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  className="mt-12 px-10 py-3 border-2 border-white/20 text-white/60 hover:text-white hover:border-white rounded-full transition-all font-bold tracking-widest"
+                  onClick={() => setGameState('TITLE')}
+                >
+                  RETURN TO BASE
+                </motion.button>
               </div>
             </motion.div>
           )}
@@ -234,6 +443,13 @@ export default function App() {
                     onClick={() => setShopOpen(s => !s)}
                   >
                     <ShoppingCart size={18} /> TERMINAL
+                  </button>
+                  
+                  <button 
+                    className="pointer-events-auto bg-black/80 border border-red-500 text-red-500 px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-red-500/20"
+                    onClick={() => engineRef.current?.stop()}
+                  >
+                    <LogOut size={18} /> MENU
                   </button>
                 </div>
               </div>

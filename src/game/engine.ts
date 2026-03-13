@@ -37,6 +37,7 @@ export class GameEngine {
   mouseX = 0; mouseY = 0;
   currentZoom = 1; targetZoom = 1; inBossFight = false;
   currentGun = 'pistol';
+  currentSkin = 'default';
   shopOpen = false;
   prngSeed = 1;
   levelCompleteTimer = 0;
@@ -217,6 +218,16 @@ export class GameEngine {
     }
   }
 
+  stop() {
+    this.mode = 'TITLE';
+    this.onStateChange('TITLE');
+    this.inBossFight = false;
+    this.shopOpen = false;
+    this.enemies = [];
+    this.bullets = [];
+    this.enemyBullets = [];
+  }
+
   start(gameMode: 'FREE' | 'LEVELS' = 'FREE', level = 1) {
     audio.init();
     audio.startBgm();
@@ -235,7 +246,7 @@ export class GameEngine {
     this.camX = 0; this.lastLandedPlat = -1; this.invulnTime = 0; this.abilityCooldown = 0;
     this.currentZoom = 1; this.targetZoom = 1; this.inBossFight = false;
     this.lastEnemyX = 0;
-    this.currentGun = "pistol"; this.shopOpen = false;
+    this.shopOpen = false;
     this.levelCompleteTimer = 0;
     this.bossDefeated = false;
     this.bossTransitionTimer = 0;
@@ -479,7 +490,8 @@ export class GameEngine {
               
               // Standardized boss health progression: 3, 6, 9, 10, 15, 18, 21, 24, 25, 30, 33, 36, 39, 40, 45...
               // Pattern: level * 3, but level * 3 - 2 every 5th level (starting at 4)
-              let hp = (this.currentLevel % 5 === 4) ? (this.currentLevel * 3 - 2) : (this.currentLevel * 3);
+              // Increased by 17 as requested
+              let hp = ((this.currentLevel % 5 === 4) ? (this.currentLevel * 3 - 2) : (this.currentLevel * 3)) + 17;
               
               let creditValue = Math.floor(50 * Math.pow(1.07, this.currentLevel - 1));
               let size = bossDef.size;
@@ -871,7 +883,14 @@ export class GameEngine {
     }
 
     ctx.fillStyle = "#222";
+    if (isPlayer) {
+        if (this.currentSkin === 'neon') ctx.fillStyle = "#000";
+        if (this.currentSkin === 'gold') ctx.fillStyle = "#443300";
+        if (this.currentSkin === 'ghost') ctx.globalAlpha *= 0.5;
+    }
     ctx.strokeStyle = isPlayer ? COLORS.neonCyan : COLORS.enemyGlow;
+    if (isPlayer && this.currentSkin === 'neon') ctx.strokeStyle = "#fff";
+    if (isPlayer && this.currentSkin === 'gold') ctx.strokeStyle = COLORS.gold;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(-10, -15); ctx.lineTo(10, -15);
@@ -882,6 +901,7 @@ export class GameEngine {
 
     ctx.shadowBlur = 10; ctx.shadowColor = isPlayer ? COLORS.neonCyan : COLORS.enemyGlow;
     ctx.fillStyle = isPlayer ? COLORS.neonCyan : COLORS.enemyGlow;
+    if (isPlayer && this.currentSkin === 'gold') ctx.fillStyle = COLORS.gold;
     ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI*2); ctx.fill();
     ctx.shadowBlur = 0;
 
@@ -889,6 +909,7 @@ export class GameEngine {
     ctx.beginPath(); ctx.arc(2, -22, 10, 0, Math.PI*2); ctx.fill();
     ctx.shadowBlur = 8; ctx.shadowColor = isPlayer ? COLORS.neonPink : "#ff0000";
     ctx.fillStyle = isPlayer ? COLORS.neonPink : "#ff0000";
+    if (isPlayer && this.currentSkin === 'neon') ctx.fillStyle = "#00f3ff";
     ctx.beginPath(); ctx.roundRect(0, -26, 12, 6, 3); ctx.fill();
     ctx.shadowBlur = 0;
 
@@ -961,8 +982,8 @@ export class GameEngine {
 
     if (this.mode === 'TITLE') {
       // Draw background elements for title
-      this.drawCyborg(this.w / 4, this.h / 2 + 100, true);
-      this.drawDrone(this.w * 0.75, this.h / 2 + 100, 1.5);
+      this.drawCyborg(this.w / 6, this.h / 2 - 30, true);
+      this.drawDrone(this.w * 5 / 6, this.h / 2 - 30, 1.5);
     }
     else if (this.mode === 'PLAYING' || this.mode === 'GAMEOVER') {
       ctx.save();
