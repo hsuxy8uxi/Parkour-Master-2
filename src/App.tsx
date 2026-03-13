@@ -9,14 +9,19 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
   
-  const [gameState, setGameState] = useState<'TITLE' | 'PLAYING' | 'GAMEOVER' | 'LEVEL_COMPLETE' | 'BOSS_TRANSITION' | 'LEVEL_SELECT'>('TITLE');
+  const [gameState, setGameState] = useState<'TITLE' | 'PLAYING' | 'GAMEOVER' | 'LEVEL_COMPLETE' | 'BOSS_TRANSITION' | 'LEVEL_SELECT' | 'LEADERBOARD'>('TITLE');
   const [stats, setStats] = useState({ score: 0, money: 0, health: 10, maxHealth: 10, weapon: 'pistol', boss: null as any, gameMode: 'FREE' as 'FREE' | 'LEVELS', currentLevel: 1, levelGoal: 1000, distance: 0, abilityCooldown: 0 });
   const [shopOpen, setShopOpen] = useState(false);
   const [damageFlash, setDamageFlash] = useState(false);
   const [bestScore, setBestScore] = useState(parseInt(localStorage.getItem('pm_best') || '0'));
   const [unlockedLevel, setUnlockedLevel] = useState(parseInt(localStorage.getItem('pm_unlocked') || '1'));
   const [username, setUsername] = useState(localStorage.getItem('pm_username') || '');
+  const usernameRef = useRef(username);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
+
+  useEffect(() => {
+    usernameRef.current = username;
+  }, [username]);
   const [currentSkin, setCurrentSkin] = useState('default');
   const [syncKey, setSyncKey] = useState(localStorage.getItem('pm_sync_key') || '');
   const [isSyncing, setIsSyncing] = useState(false);
@@ -30,15 +35,7 @@ export default function App() {
     try {
       let q;
       if (leaderboardType === 'DAILY') {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        q = query(
-          collection(db, 'scores'), 
-          orderBy('timestamp', 'desc'),
-          limit(50) // Fetch many to filter locally or just show recent
-        );
-        // For simplicity in this demo, we'll just show top 5 overall but label it
-        q = query(collection(db, 'scores'), orderBy('score', 'desc'), limit(5));
+        q = query(collection(db, 'scores'), orderBy('score', 'desc'), limit(10));
       } else {
         q = query(collection(db, 'scores'), orderBy('score', 'desc'), limit(10));
       }
@@ -108,10 +105,10 @@ export default function App() {
   };
 
   const saveScore = async (finalScore: number) => {
-    if (!username) return;
+    const nameToSave = usernameRef.current.trim() || 'ANONYMOUS';
     try {
       await addDoc(collection(db, 'scores'), {
-        username,
+        username: nameToSave,
         score: finalScore,
         timestamp: new Date().toISOString()
       });
@@ -135,7 +132,7 @@ export default function App() {
       engineRef.current = new GameEngine(canvasRef.current, {
         onStateChange: (state: any) => {
           setGameState(state);
-          if (state === 'GAMEOVER') {
+          if (state === 'GAMEOVER' || state === 'LEVEL_COMPLETE') {
             const currentScore = engineRef.current?.score || 0;
             const best = parseInt(localStorage.getItem('pm_best') || '0');
             if (currentScore > best) {
@@ -256,9 +253,18 @@ export default function App() {
                 >
                   <Trophy size={20} /> LEVELS MODE
                 </motion.button>
+
+                <motion.button 
+                  whileHover={{ scale: 1.05, boxShadow: "0 0 20px #ffd700" }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setGameState('LEADERBOARD')}
+                  className="px-6 py-3 bg-black/50 border-2 border-[#ffd700] text-[#ffd700] text-lg font-bold rounded-xl flex items-center gap-3 backdrop-blur-sm cursor-pointer"
+                >
+                  <Trophy size={20} /> TOP RECORDS
+                </motion.button>
               </div>
               
-              <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-4xl px-4">
+              <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-5xl px-4">
                 {/* Controls - Compact */}
                 <div className="p-4 bg-black/60 border border-[#00f3ff]/30 rounded-2xl backdrop-blur-md text-center flex flex-col justify-center">
                   <h2 className="text-[#00f3ff] font-bold text-sm mb-2">SYSTEM CONTROLS</h2>
@@ -267,29 +273,6 @@ export default function App() {
                     <div><span className="text-white font-bold">Z</span> - Fire</div>
                     <div><span className="text-white font-bold">SHIFT</span> - Dash</div>
                     <div><span className="text-white font-bold">B</span> - Shop</div>
-                  </div>
-                </div>
-
-                {/* Leaderboard */}
-                <div className="bg-black/60 border border-[#ffd700]/30 rounded-2xl p-4 backdrop-blur-md">
-                  <div className="flex justify-between items-center mb-2">
-                    <h3 className="text-[#ffd700] font-bold text-xs flex items-center gap-2">
-                      <Trophy size={12} /> {leaderboardType === 'DAILY' ? 'TOP SCORES' : 'ALL TIME BEST'}
-                    </h3>
-                    <button 
-                      onClick={() => setLeaderboardType(t => t === 'DAILY' ? 'ALL_TIME' : 'DAILY')}
-                      className="text-[8px] text-[#ffd700] border border-[#ffd700]/50 px-2 py-0.5 rounded hover:bg-[#ffd700]/10"
-                    >
-                      TOGGLE
-                    </button>
-                  </div>
-                  <div className="space-y-1">
-                    {leaderboard.length > 0 ? leaderboard.map((entry, i) => (
-                      <div key={i} className="flex justify-between text-[10px]">
-                        <span className="text-gray-400">{i + 1}. {entry.username}</span>
-                        <span className="text-white font-bold">{entry.score}</span>
-                      </div>
-                    )) : <div className="text-[10px] text-gray-600 italic">NO DATA</div>}
                   </div>
                 </div>
 
@@ -333,6 +316,71 @@ export default function App() {
                       </button>
                     ))}
                   </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {gameState === 'LEADERBOARD' && (
+            <motion.div 
+              key="leaderboard"
+              initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+              className="absolute inset-0 flex flex-col items-center justify-center pointer-events-auto bg-black/95 backdrop-blur-2xl"
+            >
+              <div className="w-full max-w-2xl p-8 bg-black/40 border border-[#ffd700]/20 rounded-3xl shadow-[0_0_50px_rgba(255,215,0,0.1)]">
+                <div className="flex justify-between items-center mb-8">
+                  <h2 className="text-4xl font-black text-[#ffd700] tracking-tighter flex items-center gap-4">
+                    <Trophy size={32} /> HALL OF FAME
+                  </h2>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setLeaderboardType('DAILY')}
+                      className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${leaderboardType === 'DAILY' ? 'bg-[#ffd700] text-black' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}
+                    >
+                      DAILY
+                    </button>
+                    <button 
+                      onClick={() => setLeaderboardType('ALL_TIME')}
+                      className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${leaderboardType === 'ALL_TIME' ? 'bg-[#ffd700] text-black' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}
+                    >
+                      ALL TIME
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-3 mb-10 max-h-[400px] overflow-y-auto pr-4 custom-scrollbar">
+                  {leaderboard.length > 0 ? leaderboard.map((entry, i) => (
+                    <motion.div 
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      key={i} 
+                      className={`flex justify-between items-center p-4 rounded-xl border ${i === 0 ? 'bg-[#ffd700]/10 border-[#ffd700]/50' : 'bg-white/5 border-white/10'}`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <span className={`text-xl font-black w-8 ${i < 3 ? 'text-[#ffd700]' : 'text-gray-500'}`}>
+                          {i + 1}
+                        </span>
+                        <span className="text-white font-bold text-lg">{entry.username}</span>
+                      </div>
+                      <span className="text-2xl font-black text-[#ffd700]">{entry.score.toLocaleString()}</span>
+                    </motion.div>
+                  )) : (
+                    <div className="text-center py-20 text-gray-600 italic text-xl">
+                      NO RECORDS FOUND IN THE ARCHIVES
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-center">
+                  <motion.button 
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="px-12 py-4 bg-white text-black font-black rounded-full tracking-widest hover:bg-[#ffd700] transition-colors"
+                    onClick={() => setGameState('TITLE')}
+                  >
+                    BACK TO BASE
+                  </motion.button>
                 </div>
               </div>
             </motion.div>
