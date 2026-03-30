@@ -26,7 +26,7 @@
     }
   },
   "firestore": {
-    "/scores/{scoreId}": {
+    "/leaderboard_scores/{scoreId}": {
       "schema": "Score",
       "description": "Collection of high scores"
     },

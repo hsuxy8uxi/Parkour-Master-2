@@ -1,7 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /scores/{scoreId} {
+    match /leaderboard_scores/{scoreId} {
       allow read: if true;
       allow create: if request.resource.data.username is string 
                    && request.resource.data.username.size() > 0

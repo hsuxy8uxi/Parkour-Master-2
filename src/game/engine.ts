@@ -61,6 +61,7 @@ export class GameEngine {
   particles: any[] = [];
   trails: any[] = [];
   floatingTexts: any[] = [];
+  hazards: any[] = [];
   lastLandedPlat = -1;
   lastEnemyX = 0;
   
@@ -162,15 +163,17 @@ export class GameEngine {
         
         if (e.hp <= 0) {
           this.spawnParticles(e.x, e.y, "#ff5500", 40); audio.playSfx('explosion');
-          this.coins.push({x: e.x, y: e.y - 20, vx: (Math.random() - 0.5) * 8, vy: -8, value: e.creditValue});
           this.score++; this.enemies.splice(ei, 1); this.screenShake = 6;
           
           if (e.isBoss) {
-            if (this.gameMode === 'LEVELS') {
-              this.completeLevel();
-            } else {
-              this.currentLevel++;
-            }
+              this.bossDefeated = true;
+              this.money += e.creditValue;
+              this.spawnText(e.x, e.y - 80, `+${e.creditValue} CR`, COLORS.gold, 48, 0.01);
+              this.spawnParticles(e.x, e.y, COLORS.gold, 100, 15);
+              this.spawnParticles(e.x, e.y, "#ff5500", 100, 20);
+              audio.playSfx('buy');
+          } else {
+              this.coins.push({x: e.x, y: e.y - 20, vx: (Math.random() - 0.5) * 8, vy: -8, value: e.creditValue});
           }
           this.notifyStats();
         }
@@ -242,7 +245,7 @@ export class GameEngine {
     this.vx = 0; this.vy = 0;
     this.score = 0; this.money = 0; this.health = this.maxHealth;
     this.bullets = []; this.enemyBullets = []; this.enemies = [];
-    this.coins = []; this.particles = []; this.trails = []; this.floatingTexts = [];
+    this.coins = []; this.particles = []; this.trails = []; this.floatingTexts = []; this.hazards = [];
     this.camX = 0; this.lastLandedPlat = -1; this.invulnTime = 0; this.abilityCooldown = 0;
     this.currentZoom = 1; this.targetZoom = 1; this.inBossFight = false;
     this.lastEnemyX = 0;
@@ -307,7 +310,7 @@ export class GameEngine {
     this.px = 100; this.py = this.h / 2 - 100;
     this.vx = 0; this.vy = 0;
     this.bullets = []; this.enemyBullets = []; this.enemies = [];
-    this.coins = []; this.particles = []; this.trails = []; this.floatingTexts = [];
+    this.coins = []; this.particles = []; this.trails = []; this.floatingTexts = []; this.hazards = [];
     this.camX = 0; this.lastLandedPlat = -1; this.invulnTime = 0; this.abilityCooldown = 0;
     this.currentZoom = 1; this.targetZoom = 1; this.inBossFight = false;
     this.lastEnemyX = 0;
@@ -472,6 +475,20 @@ export class GameEngine {
               }
               
               this.platforms.push(plat);
+
+              if (!isBoss && plat.w > 200 && this.random() > 0.4) {
+                  let type = this.random() > 0.5 ? 'spikes' : 'laser';
+                  let hx = plat.x + 50 + this.random() * (plat.w - 100);
+                  this.hazards.push({
+                      x: hx,
+                      y: plat.y,
+                      type: type,
+                      width: type === 'spikes' ? 40 : 10,
+                      height: type === 'spikes' ? 20 : 150,
+                      active: true,
+                      timer: 0
+                  });
+              }
           
           let spawnEnemy = false;
           if (isBoss) {
@@ -609,6 +626,43 @@ export class GameEngine {
             }
         }
       });
+
+      // Hazard collisions & logic
+      for (let i = this.hazards.length - 1; i >= 0; i--) {
+          let h = this.hazards[i];
+          if (h.type === 'laser') {
+              h.timer++;
+              if (h.timer > 120) {
+                  h.active = !h.active;
+                  h.timer = 0;
+              }
+          }
+          
+          if (h.active && this.invulnTime <= 0) {
+              let hit = false;
+              if (h.type === 'spikes') {
+                  if (Math.abs(this.px - h.x) < 20 && this.py > h.y - 25 && this.py < h.y + 10) hit = true;
+              } else if (h.type === 'laser') {
+                  if (Math.abs(this.px - h.x) < 15 && this.py > h.y - h.height && this.py < h.y) hit = true;
+              }
+              
+              if (hit) {
+                  this.health -= 2;
+                  this.screenShake = 15;
+                  this.invulnTime = 60;
+                  audio.playSfx('hit');
+                  this.vx = (this.px < h.x ? -1 : 1) * 15;
+                  this.vy = -10;
+                  this.onDamage();
+                  this.spawnParticles(this.px, this.py, COLORS.enemyGlow, 30);
+                  statsChanged = true;
+              }
+          }
+          
+          if (h.x < this.camX - 500) {
+              this.hazards.splice(i, 1);
+          }
+      }
 
       // Boss Transition Trigger
       let waitingBoss = this.enemies.find(e => e.isBoss && e.state === 'waiting');
@@ -1056,6 +1110,38 @@ export class GameEngine {
           for(let ix = p.x; ix < p.x + p.w; ix += 40) { ctx.moveTo(ix, p.y); ctx.lineTo(ix, this.h); }
           ctx.stroke();
       });
+
+      // Draw hazards
+      for (let h of this.hazards) {
+          if (h.type === 'spikes') {
+              ctx.fillStyle = "#ff003c";
+              ctx.beginPath();
+              ctx.moveTo(h.x - 20, h.y);
+              ctx.lineTo(h.x, h.y - 20);
+              ctx.lineTo(h.x + 20, h.y);
+              ctx.fill();
+              ctx.shadowBlur = 10; ctx.shadowColor = "#ff003c";
+              ctx.stroke();
+              ctx.shadowBlur = 0;
+          } else if (h.type === 'laser') {
+              ctx.fillStyle = "#333";
+              ctx.fillRect(h.x - 10, h.y - 5, 20, 5);
+              
+              if (h.active) {
+                  ctx.shadowBlur = 15; ctx.shadowColor = "#ff00ea";
+                  ctx.fillStyle = "#ff00ea";
+                  ctx.fillRect(h.x - 4, h.y - h.height, 8, h.height);
+                  ctx.fillStyle = "#fff";
+                  ctx.fillRect(h.x - 1, h.y - h.height, 2, h.height);
+                  ctx.shadowBlur = 0;
+              } else {
+                  if (h.timer > 90) {
+                      ctx.fillStyle = "rgba(255, 0, 234, 0.3)";
+                      ctx.fillRect(h.x - 1, h.y - h.height, 2, h.height);
+                  }
+              }
+          }
+      }
 
       // Draw particles
       for(let p of this.particles) {

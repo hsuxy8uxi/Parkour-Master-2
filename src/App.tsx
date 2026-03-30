@@ -9,7 +9,7 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
   
-  const [gameState, setGameState] = useState<'TITLE' | 'PLAYING' | 'GAMEOVER' | 'LEVEL_COMPLETE' | 'BOSS_TRANSITION' | 'LEVEL_SELECT' | 'LEADERBOARD'>('TITLE');
+  const [gameState, setGameState] = useState<'TITLE' | 'LOADING' | 'PLAYING' | 'GAMEOVER' | 'LEVEL_COMPLETE' | 'BOSS_TRANSITION' | 'LEVEL_SELECT' | 'LEADERBOARD'>('TITLE');
   const [stats, setStats] = useState({ score: 0, money: 0, health: 10, maxHealth: 10, weapon: 'pistol', boss: null as any, gameMode: 'FREE' as 'FREE' | 'LEVELS', currentLevel: 1, levelGoal: 1000, distance: 0, abilityCooldown: 0 });
   const [shopOpen, setShopOpen] = useState(false);
   const [damageFlash, setDamageFlash] = useState(false);
@@ -35,9 +35,9 @@ export default function App() {
     try {
       let q;
       if (leaderboardType === 'DAILY') {
-        q = query(collection(db, 'scores'), orderBy('score', 'desc'), limit(10));
+        q = query(collection(db, 'leaderboard_scores'), orderBy('score', 'desc'), limit(10));
       } else {
-        q = query(collection(db, 'scores'), orderBy('score', 'desc'), limit(10));
+        q = query(collection(db, 'leaderboard_scores'), orderBy('score', 'desc'), limit(10));
       }
       
       const querySnapshot = await getDocs(q);
@@ -107,7 +107,7 @@ export default function App() {
   const saveScore = async (finalScore: number) => {
     const nameToSave = usernameRef.current.trim() || 'ANONYMOUS';
     try {
-      await addDoc(collection(db, 'scores'), {
+      await addDoc(collection(db, 'leaderboard_scores'), {
         username: nameToSave,
         score: finalScore,
         timestamp: new Date().toISOString()
@@ -132,7 +132,7 @@ export default function App() {
       engineRef.current = new GameEngine(canvasRef.current, {
         onStateChange: (state: any) => {
           setGameState(state);
-          if (state === 'GAMEOVER' || state === 'LEVEL_COMPLETE') {
+          if (state === 'GAMEOVER') {
             const currentScore = engineRef.current?.score || 0;
             const best = parseInt(localStorage.getItem('pm_best') || '0');
             if (currentScore > best) {
@@ -189,6 +189,13 @@ export default function App() {
   const handleRightDown = () => { if (engineRef.current) engineRef.current.keys['ArrowRight'] = true; };
   const handleRightUp = () => { if (engineRef.current) engineRef.current.keys['ArrowRight'] = false; };
 
+  const handleStartGame = (mode: 'FREE' | 'LEVELS', level: number = 1) => {
+    setGameState('LOADING');
+    setTimeout(() => {
+      engineRef.current?.start(mode, level);
+    }, 1500);
+  };
+
   return (
     <div className="relative w-full h-screen bg-black overflow-hidden font-orbitron select-none">
       <canvas ref={canvasRef} className="block w-full h-full" />
@@ -214,7 +221,7 @@ export default function App() {
               className="absolute inset-0 flex flex-col items-center justify-center pointer-events-auto"
             >
               <h1 className="text-5xl md:text-7xl font-black text-white tracking-tighter mb-4 drop-shadow-[0_0_20px_rgba(0,243,255,0.8)]" style={{ textShadow: '0 0 20px #00f3ff, 0 0 40px #00f3ff' }}>
-                NEON OVERDRIVE
+                PARKOUR MASTER 2
               </h1>
               <div className="absolute top-4 right-4 text-[#ff00ea] font-bold text-xl opacity-50">V1.2</div>
               
@@ -239,7 +246,7 @@ export default function App() {
                 <motion.button 
                   whileHover={{ scale: 1.05, boxShadow: "0 0 20px #ff00ea" }}
                   whileTap={{ scale: 0.95 }}
-                  onClick={() => engineRef.current?.start('FREE')}
+                  onClick={() => handleStartGame('FREE')}
                   className="px-6 py-3 bg-black/50 border-2 border-[#ff00ea] text-[#ff00ea] text-lg font-bold rounded-xl flex items-center gap-3 backdrop-blur-sm cursor-pointer"
                 >
                   <Play size={20} /> FREE PLAY
@@ -317,6 +324,26 @@ export default function App() {
                     ))}
                   </div>
                 </div>
+              </div>
+            </motion.div>
+          )}
+
+          {gameState === 'LOADING' && (
+            <motion.div 
+              key="loading"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 flex flex-col items-center justify-center pointer-events-auto bg-black z-50"
+            >
+              <div className="text-[#00f3ff] text-2xl font-bold mb-4 animate-pulse tracking-widest">
+                INITIALIZING SYSTEM...
+              </div>
+              <div className="w-64 h-2 bg-gray-900 rounded-full overflow-hidden border border-[#00f3ff]/30">
+                <motion.div 
+                  className="h-full bg-[#00f3ff] shadow-[0_0_10px_#00f3ff]"
+                  initial={{ width: "0%" }}
+                  animate={{ width: "100%" }}
+                  transition={{ duration: 1.5, ease: "easeInOut" }}
+                />
               </div>
             </motion.div>
           )}
@@ -403,7 +430,7 @@ export default function App() {
                       <button
                         key={level}
                         disabled={!isUnlocked}
-                        onClick={() => engineRef.current?.start('LEVELS', level)}
+                        onClick={() => handleStartGame('LEVELS', level)}
                         className={`aspect-square flex items-center justify-center rounded-lg font-bold text-xl transition-all border-2 ${isUnlocked ? 'bg-black border-[#ff00ea] text-[#ff00ea] hover:bg-[#ff00ea] hover:text-white shadow-[0_0_15px_rgba(255,0,234,0.3)]' : 'bg-gray-900 border-gray-800 text-gray-700 cursor-not-allowed'}`}
                       >
                         {level}
@@ -635,7 +662,7 @@ export default function App() {
               <motion.button 
                 whileHover={{ scale: 1.05, boxShadow: "0 0 20px #00f3ff" }}
                 whileTap={{ scale: 0.95 }}
-                onClick={() => engineRef.current?.start(stats.gameMode, stats.currentLevel)}
+                onClick={() => handleStartGame(stats.gameMode, stats.currentLevel)}
                 className="px-8 py-4 bg-black/50 border-2 border-[#00f3ff] text-[#00f3ff] text-xl font-bold rounded-xl flex items-center gap-3 backdrop-blur-sm cursor-pointer"
               >
                 <Play size={24} /> REBOOT SYSTEM
